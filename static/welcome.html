@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>АГРО Клуб Оптовых Цен — Добро пожаловать</title>
+  <style>
+    :root{
+      --bg:#f6f9f4;            /* светлый фон как у агро-брендов */
+      --card:#ffffff;
+      --ink:#0b1f0b;           /* тёмно-зелёный текст */
+      --muted:#6b806b;
+      --brand:#19a461;         /* зелёный */
+      --brand-2:#88c057;       /* лаймово-зелёный акцент */
+      --danger:#e53935;
+      --border:#e7efe2;
+      --shadow:0 10px 30px rgba(25,164,97,.15);
+    }
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{height:100%}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,Arial,sans-serif;
+      background:var(--bg);
+      color:var(--ink);
+      height:var(--tg-viewport-stable-height,100vh);
+      min-height:var(--tg-viewport-stable-height,100vh);
+      padding-top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px) + 15px);
+      padding-bottom:calc(var(--tg-safe-area-inset-bottom,0px) + 12px);
+    }
+    .wrap{
+      min-height:100%;
+      display:flex;flex-direction:column;gap:16px;
+    }
+    .hero{
+      margin:0 16px;
+      padding:20px 18px;
+      background:linear-gradient(180deg,#ffffff,#f3f8ef);
+      border:1px solid var(--border);
+      border-radius:16px; box-shadow:var(--shadow);
+      display:flex; align-items:center; gap:14px;
+    }
+    .hero-emoji{font-size:36px}
+    .hero-title{font-weight:800;font-size:20px;letter-spacing:.2px}
+    .hero-sub{color:var(--muted);font-size:14px;margin-top:4px;line-height:1.35}
+    .grid{
+      display:grid; gap:12px; margin:4px 16px 16px;
+      grid-template-columns:1fr; /* в мини-аппе — одна колонка */
+    }
+    .btn{
+      display:flex;align-items:center;gap:12px;
+      padding:16px;
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:14px; box-shadow:var(--shadow);
+      text-decoration:none; color:var(--ink);
+      font-weight:800; letter-spacing:.2px;
+      transition:transform .12s ease;
+    }
+    .btn:active{transform:scale(.985)}
+    .btn .ic{font-size:20px}
+    .btn .right{
+      margin-left:auto; color:#6c6c6c; font-weight:700;
+    }
+    .note{
+      margin:0 16px 8px; color:var(--muted); font-size:13px;
+    }
+    .legal{
+      margin:8px 16px 16px; color:#809380; font-size:12px; line-height:1.4;
+    }
+    .badge{
+      display:inline-block; padding:2px 8px; border-radius:999px;
+      background:rgba(25,164,97,.12); color:var(--brand); font-weight:800; font-size:12px;
+      border:1px solid rgba(25,164,97,.22);
+    }
+  </style>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <section class="hero">
+    <div class="hero-emoji">🥦</div>
+    <div>
+      <div class="hero-title">АГРО Клуб Оптовых Цен</div>
+      <div class="hero-sub">Оптовые цены только для подписчиков. Свежие закупочные цены “Алтын Орда”.</div>
+    </div>
+  </section>
+
+  <p class="note">
+    Статус: <span id="subStatus" class="badge">Проверяем…</span>
+  </p>
+
+  <nav class="grid">
+    <a class="btn" href="/catalog">
+      <span class="ic">📦</span>
+      <span>Посмотреть ассортимент</span>
+      <span class="right">›</span>
+    </a>
+    <button class="btn" id="subscribeBtn" type="button">
+      <span class="ic">💳</span>
+      <span>Оформить подписку</span>
+      <span class="right">3000 ₸ / месяц</span>
+    </button>
+    <button class="btn" id="storeBtn" type="button">
+      <span class="ic">🏪</span>
+      <span>Выбрать ближайший магазин</span>
+      <span class="right">Самал-3 • Аксай • …</span>
+    </button>
+  </nav>
+
+  <p class="note">
+    Пример цен (Алтын Орда):<br>
+    🥔 Картофель – 120 ₸/кг • 🥕 Морковь – 140 ₸/кг • 🍅 Помидоры – 450 ₸/кг • 🍎 Яблоки – 380 ₸/кг
+  </p>
+
+  <div class="legal">
+    Если вы не подписаны, будут показаны цены с наценкой 1.5× и отметкой
+    «для подписчиков — дешевле на 30–50%».
+  </div>
+</div>
+
+<script>
+  // Telegram Mini App boot
+  (function initTG(){
+    try{
+      Telegram.WebApp.ready();
+      Telegram.WebApp.expand();
+    }catch(e){}
+  })();
+
+  let telegramId = null;
+  try{ telegramId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(e){}
+
+  // Подтягиваем статус подписки
+  async function loadStatus(){
+    const badge = document.getElementById('subStatus');
+    try{
+      const q = telegramId ? `?telegram_id=${telegramId}` : '';
+      const res = await fetch(`/api/user/subscription-status${q}`);
+      const js  = await res.json();
+
+      if(js.active){
+        badge.textContent = `Активна до ${js.until}`;
+        badge.style.background = 'rgba(25,164,97,.12)';
+        badge.style.color = 'var(--brand)';
+      }else{
+        badge.textContent = 'Неактивна';
+        badge.style.background = 'rgba(229,57,53,.10)';
+        badge.style.color = '#c62828';
+        badge.style.borderColor = 'rgba(229,57,53,.3)';
+      }
+    }catch(e){
+      badge.textContent = 'Неизвестно';
+    }
+  }
+  loadStatus();
+
+  // Кнопка «Подписка»: показываем логику 3000 ₸ и сбор номера
+  document.getElementById('subscribeBtn').addEventListener('click', async ()=>{
+    const ok = confirm('Подписка 3000 ₸/мес.\nПосле оплаты вы получите оптовые цены.\n\nПродолжить?');
+    if(!ok) return;
+
+    // Просим телефон через Telegram, либо через prompt fallback
+    try{
+      if (Telegram?.WebApp?.requestContact){
+        Telegram.WebApp.requestContact();
+      }
+    }catch(_){}
+
+    const phone = prompt('Введите номер телефона (Kaspi): +7 ...');
+    if(!phone) return;
+
+    await fetch('/api/subscribe/request-invoice', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({telegram_id: telegramId, phone})
+    });
+
+    if (Telegram?.WebApp?.showAlert){
+      Telegram.WebApp.showAlert('Заявка отправлена администратору. Счёт на Kaspi придёт в ближайшее время.');
+    } else {
+      alert('Заявка отправлена администратору.');
+    }
+  });
+
+  // Кнопка «Выбрать магазин»
+  document.getElementById('storeBtn').addEventListener('click', async ()=>{
+    // Простая форма выбора — через prompt (в мини-аппе можно заменить на отдельный экран)
+    const store = prompt('Выберите магазин: Самал-3 / Аксай / Сайран / Алгабас / Таугуль');
+    if(!store) return;
+    await fetch('/api/user/set-store', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({telegram_id: telegramId, store})
+    });
+    if (Telegram?.WebApp?.showAlert){
+      Telegram.WebApp.showAlert('Магазин сохранён в профиле.');
+    } else {
+      alert('Магазин сохранён.');
+    }
+  });
+</script>
+</body>
+</html>

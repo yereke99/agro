@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>АГРО Админ — Редактировать товар</title>
+  <style>
+    :root{
+      --bg:#f6f9f4; --card:#fff; --ink:#0b1f0b; --muted:#6b806b;
+      --brand:#19a461; --brand-2:#88c057; --border:#e7efe2; --shadow:0 10px 30px rgba(25,164,97,.15);
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,Arial,sans-serif;
+      background:var(--bg); color:var(--ink);
+      height:var(--tg-viewport-stable-height,100vh);
+      min-height:var(--tg-viewport-stable-height,100vh);
+      padding-top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px) + 15px);
+      padding-bottom:calc(var(--tg-safe-area-inset-bottom,0px) + 12px);
+    }
+    .card{margin:16px; padding:16px; border-radius:16px; background:var(--card); border:1px solid var(--border); box-shadow:var(--shadow)}
+    .h{font-weight:900; font-size:18px; margin-bottom:12px}
+    .grid{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+    .grid-1{grid-template-columns:1fr}
+    label{display:block; font-weight:700; font-size:13px; color:var(--muted); margin-bottom:6px}
+    input,select,textarea{width:100%; padding:12px 12px; border:1px solid var(--border); border-radius:12px; outline:none; background:#fff}
+    textarea{min-height:96px; resize:vertical}
+    .row{display:flex; gap:10px; margin-top:12px}
+    .btn{padding:12px 14px; border-radius:12px; border:0; font-weight:900; cursor:pointer}
+    .btn.save{background:linear-gradient(135deg,var(--brand),var(--brand-2)); color:#fff; flex:1}
+    .btn.cancel{background:#eef5ea; color:#2d5b2d}
+    .note{color:#b26b00; background:#fff9ed; border:1px dashed #ffd9a6; padding:10px 12px; border-radius:12px; margin-top:10px}
+    .upload{border:2px dashed var(--border); border-radius:12px; background:#fcfffa; padding:16px; text-align:center; cursor:pointer}
+    .preview{margin-top:10px;}
+    .preview img{max-width:160px; border-radius:12px; border:1px solid var(--border)}
+    @media (max-width:760px){ .grid{grid-template-columns:1fr} }
+  </style>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="h">Редактировать товар</div>
+
+    <form id="f">
+      <div class="grid">
+        <div>
+          <label>Название</label>
+          <input id="name" required>
+        </div>
+
+        <div>
+          <label>Категория</label>
+          <select id="cat" required>
+            <option value="vegetables">Овощи</option>
+            <option value="fruits">Фрукты</option>
+            <option value="greens">Зелень</option>
+            <option value="promo">Акции</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Единица</label>
+          <input id="unit" required>
+        </div>
+
+        <div>
+          <label>Базовая цена (₸)</label>
+          <input id="price" type="number" min="0" required>
+        </div>
+
+        <div>
+          <label>Активен</label>
+          <select id="active">
+            <option value="1">Да</option>
+            <option value="0">Нет</option>
+          </select>
+        </div>
+
+        <div class="grid-1" style="grid-column:1/-1">
+          <label>Описание</label>
+          <textarea id="desc"></textarea>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <label>Фото</label>
+        <div class="preview" id="preview">
+          <img id="img" alt="" style="display:none">
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="upload" id="uploadBtn">Заменить фото…</div>
+          <input id="photo" type="file" accept="image/*" style="display:none">
+          <label style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="removePhoto"> Удалить фото
+          </label>
+        </div>
+      </div>
+
+      <div class="row">
+        <button type="button" class="btn cancel" onclick="location.href='/admin-show-catalog'">Назад</button>
+        <button type="submit" class="btn save">Сохранить</button>
+      </div>
+    </form>
+  </div>
+
+<script>
+  let tgId = null, productId = null, originalPhoto = '';
+  try{ Telegram.WebApp.ready(); Telegram.WebApp.expand(); tgId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(_){}
+
+  function getParam(name){ return new URL(location.href).searchParams.get(name); }
+  function photoURL(p){
+    const x=(p||'').trim(); if(!x) return '';
+    if(/^https?:\/\//i.test(x)) return x;
+    return window.location.origin.replace(/\/+$/,'') + (x.startsWith('/')?x:'/'+x);
+  }
+
+  async function load(){
+    productId = getParam('id');
+    if(!productId){ block('Не передан id товара'); return; }
+    const headers = {}; if(tgId) headers['X-Telegram-Id']=String(tgId);
+    const r = await fetch('/api/admin/products/get?id='+encodeURIComponent(productId), {headers});
+    if(!r.ok){ block('Доступ запрещён или товар не найден'); return; }
+    const p = await r.json();
+
+    nameEl.value = p.name||'';
+    catEl.value  = p.category||'vegetables';
+    unitEl.value = p.unit||'₸/кг';
+    priceEl.value= p.price||0;
+    activeEl.value = String(p.active?1:0);
+    descEl.value = p.description||'';
+
+    originalPhoto = p.photo||'';
+    const src = photoURL(originalPhoto);
+    if(src){ imgEl.src=src; imgEl.style.display='block'; }
+  }
+
+  async function save(e){
+    e.preventDefault();
+    const name=nameEl.value.trim(), unit=unitEl.value.trim(), price=priceEl.value;
+    if(!name || !unit || price===''){ return toast('Заполните обязательные поля'); }
+
+    const fd = new FormData();
+    fd.append('id', productId);
+    fd.append('name', name);
+    fd.append('category', catEl.value);
+    fd.append('unit', unit);
+    fd.append('price', price);
+    fd.append('active', activeEl.value);
+    fd.append('description', descEl.value.trim());
+    fd.append('remove_photo', document.getElementById('removePhoto').checked ? '1' : '0');
+    if(photoEl.files && photoEl.files[0]) fd.append('photo', photoEl.files[0]);
+
+    const headers = {}; if(tgId) headers['X-Telegram-Id']=String(tgId);
+    const r = await fetch('/api/admin/products/update', {method:'POST', headers, body:fd});
+    if(r.ok){ toast('Товар обновлён'); setTimeout(()=>location.href='/admin-show-catalog', 600); }
+    else { const t = await r.text(); toast('Ошибка: '+t); }
+  }
+
+  function toast(t){ if(Telegram?.WebApp?.showAlert) Telegram.WebApp.showAlert(t); else alert(t); }
+  function block(text){ document.getElementById('card').innerHTML = `<div class="h">Ошибка</div><div class="note">${text||''}</div>`; }
+
+  const nameEl = document.getElementById('name');
+  const catEl  = document.getElementById('cat');
+  const unitEl = document.getElementById('unit');
+  const priceEl= document.getElementById('price');
+  const activeEl= document.getElementById('active');
+  const descEl = document.getElementById('desc');
+  const photoEl= document.getElementById('photo');
+  const imgEl  = document.getElementById('img');
+
+  document.getElementById('f').addEventListener('submit', save);
+  document.getElementById('uploadBtn').addEventListener('click', ()=> photoEl.click());
+  photoEl.addEventListener('change', ()=>{
+    const f = photoEl.files && photoEl.files[0];
+    if(!f) return;
+    const r = new FileReader(); r.onload = e => { imgEl.src=e.target.result; imgEl.style.display='block'; }; r.readAsDataURL(f);
+  });
+
+  (async function(){ await load(); })();
+</script>
+</body>
+</html>
