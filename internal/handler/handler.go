@@ -51,7 +51,6 @@ func (h *Handler) DefaultHandler(ctx context.Context, b *bot.Bot, update *models
 		return
 	}
 
-	// Текст приветствия + призыв открыть мини-апп
 	text := "👋 Привет! Добро пожаловать в «АГРО Клуб Оптовых Цен».\n" +
 		"Нажмите кнопку ниже, чтобы открыть мини-приложение и увидеть оптовые цены, оформить подписку и сделать заказ."
 
@@ -59,8 +58,7 @@ func (h *Handler) DefaultHandler(ctx context.Context, b *bot.Bot, update *models
 		InlineKeyboard: [][]models.InlineKeyboardButton{
 			{
 				{
-					Text: "🚀 Открыть мини-апп",
-					// WebApp-кнопка открывает ваш мини-апп внутри Telegram
+					Text:   "🚀 Открыть мини-апп",
 					WebApp: &models.WebAppInfo{URL: h.cfg.MiniAppUrl},
 				},
 			},
@@ -72,13 +70,11 @@ func (h *Handler) DefaultHandler(ctx context.Context, b *bot.Bot, update *models
 			InlineKeyboard: [][]models.InlineKeyboardButton{
 				{
 					{
-						Text: "🚀 Открыть мини-апп",
-						// WebApp-кнопка открывает ваш мини-апп внутри Telegram
+						Text:   "🚀 Открыть мини-апп",
 						WebApp: &models.WebAppInfo{URL: h.cfg.MiniAppUrl},
 					},
 					{
-						Text: "🚀 Admin",
-						// WebApp-кнопка открывает ваш мини-апп внутри Telegram
+						Text:   "🛠 Admin",
 						WebApp: &models.WebAppInfo{URL: h.cfg.MiniAppUrlAdmin},
 					},
 				},
@@ -124,6 +120,9 @@ func (h *Handler) StartWebServer(ctx context.Context, b *bot.Bot) {
 	mux.HandleFunc("/admin-add", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./static/admin-add.html")
 	})
+	mux.HandleFunc("/admin-add-store", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./static/admin-add-store.html")
+	})
 	mux.HandleFunc("/admin-show-catalog", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./static/admin-show-catalog.html")
 	})
@@ -131,24 +130,35 @@ func (h *Handler) StartWebServer(ctx context.Context, b *bot.Bot) {
 		http.ServeFile(w, r, "./static/admin-edit-product.html")
 	})
 
+	mux.HandleFunc("/map-view", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./static/map-view.html")
+	})
+	mux.HandleFunc("/store-select", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./static/store-select.html")
+	})
+
 	// simple admin id source
 	mux.HandleFunc("/admin-id", func(w http.ResponseWriter, r *http.Request) {
 		jsonOK(w, map[string]any{"adminId": h.cfg.AdminID})
 	})
 
-	// USER / SHOP API (original)
-	mux.HandleFunc("/api/user/subscription-status", h.handleGetSubStatus)
+	// STORES
+	mux.HandleFunc("/api/stores", h.handleListStores)         // GET list
+	mux.HandleFunc("/api/admin/stores/add", h.handleAddStore) // POST {code,name,address}
+
+	// USER / SHOP API
+	mux.HandleFunc("/api/user/subscription-status", h.handleGetSubStatus) // now returns store info
 	mux.HandleFunc("/api/subscribe/request-invoice", h.handleRequestInvoice)
 	mux.HandleFunc("/api/user/set-store", h.handleSetStore)
 	mux.HandleFunc("/api/products", h.handleGetProducts)
 	mux.HandleFunc("/api/orders/create", h.handleCreateOrder)
 
 	// ADMIN: products
-	mux.HandleFunc("/api/admin/products", h.handleAdminListProducts)         // GET all (incl inactive)
-	mux.HandleFunc("/api/admin/products/get", h.handleAdminGetProduct)       // GET ?id=
-	mux.HandleFunc("/api/admin/products/add", h.handleAdminAddProduct)       // POST multipart
-	mux.HandleFunc("/api/admin/products/update", h.handleAdminUpdateProduct) // POST multipart
-	mux.HandleFunc("/api/admin/products/delete", h.handleAdminDeleteProduct) // POST JSON {id}
+	mux.HandleFunc("/api/admin/products", h.handleAdminListProducts)
+	mux.HandleFunc("/api/admin/products/get", h.handleAdminGetProduct)
+	mux.HandleFunc("/api/admin/products/add", h.handleAdminAddProduct)       // multipart (+ store_code)
+	mux.HandleFunc("/api/admin/products/update", h.handleAdminUpdateProduct) // multipart (+ store_code)
+	mux.HandleFunc("/api/admin/products/delete", h.handleAdminDeleteProduct)
 
 	// uploads static
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
@@ -180,16 +190,394 @@ func (h *Handler) isAdminRequest(r *http.Request) bool {
 	return tgid == fmt.Sprint(h.cfg.AdminID)
 }
 
-// =============== Existing handlers (GetSubStatus, RequestInvoice, SetStore, GetProducts, CreateOrder) stay as you posted ===============
+// ========================= STORES =========================
 
-// --- Admin: list all products (including inactive)
+type storeIn struct {
+	Code    string `json:"code"`
+	Name    string `json:"name"`
+	Address string `json:"address"`
+}
+
+func (h *Handler) handleListStores(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.db.Query(`SELECT code, name, COALESCE(address,'') FROM stores ORDER BY name`)
+	if err != nil {
+		h.logger.Error("list stores", zap.Error(err))
+		jsonErr(w, 500, "db error")
+		return
+	}
+	defer rows.Close()
+
+	type store struct {
+		Code    string `json:"code"`
+		Name    string `json:"name"`
+		Address string `json:"address"`
+	}
+	var out []store
+	for rows.Next() {
+		var s store
+		if err := rows.Scan(&s.Code, &s.Name, &s.Address); err != nil {
+			h.logger.Error("scan store", zap.Error(err))
+			continue
+		}
+		out = append(out, s)
+	}
+	jsonOK(w, out)
+}
+
+// handler/geocode.go (или в handler.go рядом с Handler)
+func (h *Handler) geocodeAddress(addr string) (lng, lat float64, formatted string, err error) {
+	if strings.TrimSpace(addr) == "" || h.cfg.YandexAPIKey == "" {
+		return 0, 0, "", fmt.Errorf("no address or no api key")
+	}
+	url := fmt.Sprintf("https://geocode-maps.yandex.ru/1.x/?apikey=%s&geocode=%s&format=json&lang=ru_RU&results=1",
+		h.cfg.YandexAPIKey, urlQueryEscape(addr)) // urlQueryEscape = url.QueryEscape
+	resp, e := http.Get(url)
+	if e != nil {
+		return 0, 0, "", e
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+
+	// простенький парс без структур
+	var j map[string]any
+	if err := json.Unmarshal(b, &j); err != nil {
+		return 0, 0, "", err
+	}
+	g := dig(j, "response", "GeoObjectCollection", "featureMember")
+	arr, _ := g.([]any)
+	if len(arr) == 0 {
+		return 0, 0, "", fmt.Errorf("no results")
+	}
+	geo, _ := arr[0].(map[string]any)
+	obj := dig(geo, "GeoObject").(map[string]any)
+	pos := dig(obj, "Point", "pos").(string)
+	parts := strings.Fields(pos)
+	if len(parts) != 2 {
+		return 0, 0, "", fmt.Errorf("bad pos")
+	}
+	lng, _ = strconv.ParseFloat(parts[0], 64)
+	lat, _ = strconv.ParseFloat(parts[1], 64)
+
+	formatted = ""
+	if md, ok := dig(obj, "metaDataProperty", "GeocoderMetaData").(map[string]any); ok {
+		if a, ok := md["Address"].(map[string]any); ok {
+			if f, ok := a["formatted"].(string); ok {
+				formatted = f
+			}
+		}
+		if formatted == "" {
+			if t, ok := md["text"].(string); ok {
+				formatted = t
+			}
+		}
+	}
+	return lng, lat, formatted, nil
+}
+
+func urlQueryEscape(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, " ", "+"), "\n", "+")
+}
+
+func dig(m any, path ...string) any {
+	cur := m
+	for _, k := range path {
+		mm, ok := cur.(map[string]any)
+		if !ok {
+			return nil
+		}
+		cur = mm[k]
+		if cur == nil {
+			return nil
+		}
+	}
+	return cur
+}
+
+func (h *Handler) handleAddStore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !h.isAdminRequest(r) {
+		jsonErr(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	var in storeIn
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		jsonErr(w, 400, "invalid json")
+		return
+	}
+	in.Code = strings.TrimSpace(in.Code)
+	in.Name = strings.TrimSpace(in.Name)
+	in.Address = strings.TrimSpace(in.Address)
+	if in.Code == "" || in.Name == "" {
+		jsonErr(w, 400, "code and name are required")
+		return
+	}
+
+	var lng, lat float64
+	var formatted string
+	if in.Address != "" && h.cfg.YandexAPIKey != "" {
+		l, a, f, err := h.geocodeAddress(in.Address)
+		if err == nil {
+			lng, lat, formatted = l, a, f
+		}
+	}
+
+	_, err := h.db.Exec(`
+        INSERT INTO stores(code,name,address,longitude,latitude,address_formatted)
+        VALUES(?,?,?,?,?,?)
+        ON CONFLICT(code) DO UPDATE SET
+           name=excluded.name,
+           address=excluded.address,
+           longitude=excluded.longitude,
+           latitude=excluded.latitude,
+           address_formatted=excluded.address_formatted
+    `, in.Code, in.Name, in.Address, nullIfZero(lng), nullIfZero(lat), sql.NullString{String: formatted, Valid: formatted != ""})
+	if err != nil {
+		h.logger.Error("insert store", zap.Error(err))
+		jsonErr(w, 500, "db error")
+		return
+	}
+	jsonOK(w, map[string]string{"status": "ok"})
+}
+
+func nullIfZero(v float64) any {
+	if v == 0 {
+		return nil
+	}
+	return v
+}
+
+// ========================= API HANDLERS =========================
+
+func (h *Handler) handleGetSubStatus(w http.ResponseWriter, r *http.Request) {
+	telegramID := firstNonEmpty(
+		r.URL.Query().Get("telegram_id"),
+		r.Header.Get("X-Telegram-Id"),
+	)
+	if telegramID == "" {
+		jsonErr(w, http.StatusBadRequest, "telegram_id is required")
+		return
+	}
+
+	var subStatus string
+	var subUntil sql.NullTime
+	var selectedStore sql.NullString
+
+	err := h.db.QueryRow(`
+		SELECT sub_status, sub_until, selected_store
+		FROM users
+		WHERE user_id = ?
+	`, telegramID).Scan(&subStatus, &subUntil, &selectedStore)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		h.logger.Error("select users sub", zap.Error(err))
+		jsonErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	active := false
+	until := ""
+	if subStatus == "active" && subUntil.Valid && subUntil.Time.After(time.Now()) {
+		active = true
+		until = subUntil.Time.Format("2006-01-02")
+	} else {
+		_ = h.db.QueryRow(`
+			SELECT valid_until
+			FROM subscriptions
+			WHERE user_id = ? AND status = 'active'
+			ORDER BY valid_until DESC
+			LIMIT 1
+		`, telegramID).Scan(&subUntil)
+		if subUntil.Valid && subUntil.Time.After(time.Now()) {
+			active = true
+			until = subUntil.Time.Format("2006-01-02")
+		}
+	}
+
+	var storeName, storeAddr sql.NullString
+	var storeLng, storeLat sql.NullFloat64
+	var addrFmt sql.NullString
+
+	if selectedStore.Valid && selectedStore.String != "" {
+		_ = h.db.QueryRow(`
+            SELECT name, COALESCE(address,''), longitude, latitude, COALESCE(address_formatted,'')
+            FROM stores WHERE code = ?`,
+			selectedStore.String,
+		).Scan(&storeName, &storeAddr, &storeLng, &storeLat, &addrFmt)
+	}
+
+	jsonOK(w, map[string]any{
+		"active":        active,
+		"until":         until,
+		"store_code":    selectedStore.String,
+		"store_name":    storeName.String,
+		"store_address": firstNonEmpty(addrFmt.String, storeAddr.String), // отдаём форматированный, если есть
+		"store_lng":     storeLng.Float64,
+		"store_lat":     storeLat.Float64,
+	})
+}
+
+type requestInvoiceIn struct {
+	TelegramID string `json:"telegram_id"`
+	Phone      string `json:"phone"`
+}
+
+func (h *Handler) handleRequestInvoice(w http.ResponseWriter, r *http.Request) {
+	var in requestInvoiceIn
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	in.TelegramID = strings.TrimSpace(in.TelegramID)
+	in.Phone = strings.TrimSpace(in.Phone)
+	if in.TelegramID == "" || in.Phone == "" {
+		jsonErr(w, http.StatusBadRequest, "telegram_id and phone are required")
+		return
+	}
+
+	uid := uuid.New().String()
+	_, err := h.db.Exec(`
+		INSERT INTO users (id, user_id, nickname, phone, sub_status)
+		VALUES (?, ?, COALESCE((SELECT nickname FROM users WHERE user_id = ?),'user'), ?, 'pending')
+		ON CONFLICT(user_id) DO UPDATE SET
+		  phone = excluded.phone,
+		  sub_status = 'pending',
+		  updated_at = CURRENT_TIMESTAMP
+	`, uid, in.TelegramID, in.TelegramID, in.Phone)
+	if err != nil {
+		h.logger.Error("upsert users phone", zap.Error(err))
+		jsonErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	_, err = h.db.Exec(`
+		INSERT INTO subscriptions (user_id, phone, status, amount)
+		VALUES (?, ?, 'pending', 3000)
+	`, in.TelegramID, in.Phone)
+	if err != nil {
+		h.logger.Error("insert subscription", zap.Error(err))
+		jsonErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	h.notifyAdmin(fmt.Sprintf(
+		"🧾 Заявка на подписку\n\n👤 Telegram ID: %s\n📞 Телефон: %s\nСумма: 3000 ₸\n\nНужно выставить счёт в Kaspi и активировать.",
+		in.TelegramID, in.Phone,
+	))
+
+	jsonOK(w, map[string]string{"status": "ok"})
+}
+
+type setStoreIn struct {
+	TelegramID string `json:"telegram_id"`
+	Store      string `json:"store"`
+}
+
+func (h *Handler) handleSetStore(w http.ResponseWriter, r *http.Request) {
+	var in setStoreIn
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	in.TelegramID = strings.TrimSpace(in.TelegramID)
+	in.Store = strings.TrimSpace(in.Store)
+	if in.TelegramID == "" || in.Store == "" {
+		jsonErr(w, http.StatusBadRequest, "telegram_id and store are required")
+		return
+	}
+
+	// ensure store exists
+	var cnt int
+	_ = h.db.QueryRow(`SELECT COUNT(1) FROM stores WHERE code = ? OR name = ?`, in.Store, in.Store).Scan(&cnt)
+	if cnt == 0 {
+		jsonErr(w, 400, "store not found")
+		return
+	}
+
+	uid := uuid.New().String()
+	_, err := h.db.Exec(`
+		INSERT INTO users (id, user_id, nickname, selected_store)
+		VALUES (?, ?, COALESCE((SELECT nickname FROM users WHERE user_id = ?),'user'), ?)
+		ON CONFLICT(user_id) DO UPDATE SET
+		  selected_store = excluded.selected_store,
+		  updated_at = CURRENT_TIMESTAMP
+	`, uid, in.TelegramID, in.TelegramID, in.Store)
+	if err != nil {
+		h.logger.Error("update selected_store", zap.Error(err))
+		jsonErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	jsonOK(w, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleGetProducts(w http.ResponseWriter, r *http.Request) {
+	// опционально фильтруем по store_code, если у пользователя выбран магазин (X-Telegram-Id)
+	tgid := strings.TrimSpace(r.Header.Get("X-Telegram-Id"))
+	var store sql.NullString
+	if tgid != "" {
+		_ = h.db.QueryRow(`SELECT selected_store FROM users WHERE user_id = ?`, tgid).Scan(&store)
+	}
+
+	var rows *sql.Rows
+	var err error
+	if store.Valid && store.String != "" {
+		rows, err = h.db.Query(`
+			SELECT id, name, COALESCE(emoji,''), category_slug, unit, price, COALESCE(photo_path,''), COALESCE(store_code,'')
+			FROM products
+			WHERE active = 1 AND (store_code = ? OR store_code IS NULL OR store_code = '')
+			ORDER BY category_slug, name
+		`, store.String)
+	} else {
+		rows, err = h.db.Query(`
+			SELECT id, name, COALESCE(emoji,''), category_slug, unit, price, COALESCE(photo_path,''), COALESCE(store_code,'')
+			FROM products
+			WHERE active = 1
+			ORDER BY category_slug, name
+		`)
+	}
+	if err != nil {
+		h.logger.Error("select products", zap.Error(err))
+		jsonErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	defer rows.Close()
+
+	type product struct {
+		ID       int64  `json:"id"`
+		Name     string `json:"name"`
+		Emoji    string `json:"emoji"`
+		Category string `json:"category"`
+		Unit     string `json:"unit"`
+		Price    int64  `json:"price"`
+		Photo    string `json:"photo"`
+		Store    string `json:"store_code"`
+	}
+
+	var out []product
+	for rows.Next() {
+		var p product
+		if err := rows.Scan(&p.ID, &p.Name, &p.Emoji, &p.Category, &p.Unit, &p.Price, &p.Photo, &p.Store); err != nil {
+			h.logger.Error("scan product", zap.Error(err))
+			continue
+		}
+		out = append(out, p)
+	}
+
+	jsonOK(w, out)
+}
+
+// ========================= ADMIN PRODUCTS =========================
+
 func (h *Handler) handleAdminListProducts(w http.ResponseWriter, r *http.Request) {
 	if !h.isAdminRequest(r) {
 		jsonErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	rows, err := h.db.Query(`
-		SELECT id, name, category_slug, unit, price, active, COALESCE(photo_path,''), COALESCE(description,'')
+		SELECT id, name, category_slug, unit, price, active, COALESCE(photo_path,''), COALESCE(description,''), COALESCE(store_code,'')
 		FROM products
 		ORDER BY category_slug, name
 	`)
@@ -209,11 +597,12 @@ func (h *Handler) handleAdminListProducts(w http.ResponseWriter, r *http.Request
 		Active      int64  `json:"active"`
 		Photo       string `json:"photo"`
 		Description string `json:"description"`
+		Store       string `json:"store_code"`
 	}
 	var out []product
 	for rows.Next() {
 		var p product
-		if err := rows.Scan(&p.ID, &p.Name, &p.Category, &p.Unit, &p.Price, &p.Active, &p.Photo, &p.Description); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Category, &p.Unit, &p.Price, &p.Active, &p.Photo, &p.Description, &p.Store); err != nil {
 			h.logger.Error("scan product", zap.Error(err))
 			continue
 		}
@@ -222,7 +611,6 @@ func (h *Handler) handleAdminListProducts(w http.ResponseWriter, r *http.Request
 	jsonOK(w, out)
 }
 
-// --- Admin: get single product
 func (h *Handler) handleAdminGetProduct(w http.ResponseWriter, r *http.Request) {
 	if !h.isAdminRequest(r) {
 		jsonErr(w, http.StatusForbidden, "forbidden")
@@ -243,11 +631,12 @@ func (h *Handler) handleAdminGetProduct(w http.ResponseWriter, r *http.Request) 
 		Active      int64  `json:"active"`
 		Photo       string `json:"photo"`
 		Description string `json:"description"`
+		Store       string `json:"store_code"`
 	}
 	err := h.db.QueryRow(`
-		SELECT id, name, category_slug, unit, price, active, COALESCE(photo_path,''), COALESCE(description,'')
+		SELECT id, name, category_slug, unit, price, active, COALESCE(photo_path,''), COALESCE(description,''), COALESCE(store_code,'')
 		FROM products WHERE id = ?`, id).Scan(
-		&p.ID, &p.Name, &p.Category, &p.Unit, &p.Price, &p.Active, &p.Photo, &p.Description,
+		&p.ID, &p.Name, &p.Category, &p.Unit, &p.Price, &p.Active, &p.Photo, &p.Description, &p.Store,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -261,7 +650,6 @@ func (h *Handler) handleAdminGetProduct(w http.ResponseWriter, r *http.Request) 
 	jsonOK(w, p)
 }
 
-// --- Admin: update product
 func (h *Handler) handleAdminUpdateProduct(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -289,9 +677,19 @@ func (h *Handler) handleAdminUpdateProduct(w http.ResponseWriter, r *http.Reques
 	priceStr := strings.TrimSpace(r.FormValue("price"))
 	activeStr := strings.TrimSpace(r.FormValue("active"))
 	desc := strings.TrimSpace(r.FormValue("description"))
+	storeCode := strings.TrimSpace(r.FormValue("store_code"))
 	removePhoto := strings.TrimSpace(r.FormValue("remove_photo")) == "1"
-	if name == "" || cat == "" || unit == "" || priceStr == "" {
-		jsonErr(w, 400, "name, category, unit, price are required")
+
+	if name == "" || cat == "" || unit == "" || priceStr == "" || storeCode == "" {
+		jsonErr(w, 400, "name, category, unit, price, store_code are required")
+		return
+	}
+
+	// validate store exists
+	var cnt int
+	_ = h.db.QueryRow(`SELECT COUNT(1) FROM stores WHERE code = ?`, storeCode).Scan(&cnt)
+	if cnt == 0 {
+		jsonErr(w, 400, "store not found")
 		return
 	}
 
@@ -316,7 +714,6 @@ func (h *Handler) handleAdminUpdateProduct(w http.ResponseWriter, r *http.Reques
 		defer file.Close()
 		if path, e := saveUpload(file, header); e == nil {
 			newPhoto = path
-			// Optionally remove old file
 			if oldPhoto.Valid && oldPhoto.String != "" {
 				_ = os.Remove("." + oldPhoto.String)
 			}
@@ -332,9 +729,9 @@ func (h *Handler) handleAdminUpdateProduct(w http.ResponseWriter, r *http.Reques
 
 	_, err = h.db.Exec(`
 		UPDATE products SET
-		  name = ?, category_slug = ?, unit = ?, price = ?, active = ?, description = ?, photo_path = ?, updated_at = CURRENT_TIMESTAMP
+		  name = ?, category_slug = ?, unit = ?, price = ?, active = ?, description = ?, photo_path = ?, store_code = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?`,
-		name, cat, unit, price, active, desc, newPhoto, id,
+		name, cat, unit, price, active, desc, newPhoto, storeCode, id,
 	)
 	if err != nil {
 		h.logger.Error("update product", zap.Error(err))
@@ -345,7 +742,6 @@ func (h *Handler) handleAdminUpdateProduct(w http.ResponseWriter, r *http.Reques
 	jsonOK(w, map[string]string{"status": "ok"})
 }
 
-// --- Admin: delete product
 type delReq struct {
 	ID int64 `json:"id"`
 }
@@ -379,196 +775,15 @@ func (h *Handler) handleAdminDeleteProduct(w http.ResponseWriter, r *http.Reques
 	jsonOK(w, map[string]string{"status": "ok"})
 }
 
-// ========================= API HANDLERS =========================
-
-func (h *Handler) handleGetSubStatus(w http.ResponseWriter, r *http.Request) {
-	telegramID := firstNonEmpty(
-		r.URL.Query().Get("telegram_id"),
-		r.Header.Get("X-Telegram-Id"),
-	)
-	if telegramID == "" {
-		jsonErr(w, http.StatusBadRequest, "telegram_id is required")
-		return
-	}
-
-	var subStatus string
-	var subUntil sql.NullTime
-
-	err := h.db.QueryRow(`
-		SELECT sub_status, sub_until
-		FROM users
-		WHERE user_id = ?
-	`, telegramID).Scan(&subStatus, &subUntil)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		h.logger.Error("select users sub", zap.Error(err))
-		jsonErr(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	active := false
-	until := ""
-	if subStatus == "active" && subUntil.Valid && subUntil.Time.After(time.Now()) {
-		active = true
-		until = subUntil.Time.Format("2006-01-02")
-	} else {
-		// Доп. проверка по subscriptions
-		_ = h.db.QueryRow(`
-			SELECT valid_until
-			FROM subscriptions
-			WHERE user_id = ? AND status = 'active'
-			ORDER BY valid_until DESC
-			LIMIT 1
-		`, telegramID).Scan(&subUntil)
-		if subUntil.Valid && subUntil.Time.After(time.Now()) {
-			active = true
-			until = subUntil.Time.Format("2006-01-02")
-		}
-	}
-
-	jsonOK(w, map[string]any{
-		"active": active,
-		"until":  until,
-	})
-}
-
-type requestInvoiceIn struct {
-	TelegramID string `json:"telegram_id"`
-	Phone      string `json:"phone"`
-}
-
-func (h *Handler) handleRequestInvoice(w http.ResponseWriter, r *http.Request) {
-	var in requestInvoiceIn
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		jsonErr(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	in.TelegramID = strings.TrimSpace(in.TelegramID)
-	in.Phone = strings.TrimSpace(in.Phone)
-	if in.TelegramID == "" || in.Phone == "" {
-		jsonErr(w, http.StatusBadRequest, "telegram_id and phone are required")
-		return
-	}
-
-	// upsert user phone + set status pending
-	uid := uuid.New().String()
-	_, err := h.db.Exec(`
-		INSERT INTO users (id, user_id, nickname, phone, sub_status)
-		VALUES (?, ?, COALESCE((SELECT nickname FROM users WHERE user_id = ?),'user'), ?, 'pending')
-		ON CONFLICT(user_id) DO UPDATE SET
-		  phone = excluded.phone,
-		  sub_status = 'pending',
-		  updated_at = CURRENT_TIMESTAMP
-	`, uid, in.TelegramID, in.TelegramID, in.Phone)
-	if err != nil {
-		h.logger.Error("upsert users phone", zap.Error(err))
-		jsonErr(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	// add subscriptions row (pending)
-	_, err = h.db.Exec(`
-		INSERT INTO subscriptions (user_id, phone, status, amount)
-		VALUES (?, ?, 'pending', 3000)
-	`, in.TelegramID, in.Phone)
-	if err != nil {
-		h.logger.Error("insert subscription", zap.Error(err))
-		jsonErr(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	// notify admin in TG
-	h.notifyAdmin(fmt.Sprintf(
-		"🧾 Заявка на подписку\n\n👤 Telegram ID: %s\n📞 Телефон: %s\nСумма: 3000 ₸\n\nНужно выставить счёт в Kaspi и активировать.",
-		in.TelegramID, in.Phone,
-	))
-
-	jsonOK(w, map[string]string{"status": "ok"})
-}
-
-type setStoreIn struct {
-	TelegramID string `json:"telegram_id"`
-	Store      string `json:"store"`
-}
-
-func (h *Handler) handleSetStore(w http.ResponseWriter, r *http.Request) {
-	var in setStoreIn
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		jsonErr(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	in.TelegramID = strings.TrimSpace(in.TelegramID)
-	in.Store = strings.TrimSpace(in.Store)
-	if in.TelegramID == "" || in.Store == "" {
-		jsonErr(w, http.StatusBadRequest, "telegram_id and store are required")
-		return
-	}
-
-	// ensure store exists (optional)
-	var cnt int
-	_ = h.db.QueryRow(`SELECT COUNT(1) FROM stores WHERE code = ? OR name = ?`, in.Store, in.Store).Scan(&cnt)
-	if cnt == 0 {
-		// если прилетает человекочитаемое имя — позволим сохранить как text
-		h.logger.Warn("store not found, saving raw", zap.String("store", in.Store))
-	}
-
-	// upsert selected_store
-	uid := uuid.New().String()
-	_, err := h.db.Exec(`
-		INSERT INTO users (id, user_id, nickname, selected_store)
-		VALUES (?, ?, COALESCE((SELECT nickname FROM users WHERE user_id = ?),'user'), ?)
-		ON CONFLICT(user_id) DO UPDATE SET
-		  selected_store = excluded.selected_store,
-		  updated_at = CURRENT_TIMESTAMP
-	`, uid, in.TelegramID, in.TelegramID, in.Store)
-	if err != nil {
-		h.logger.Error("update selected_store", zap.Error(err))
-		jsonErr(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	jsonOK(w, map[string]string{"status": "ok"})
-}
-
-func (h *Handler) handleGetProducts(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.db.Query(`
-		SELECT id, name, COALESCE(emoji,''), category_slug, unit, price, COALESCE(photo_path,'')
-		FROM products
-		WHERE active = 1
-		ORDER BY category_slug, name
-	`)
-	if err != nil {
-		h.logger.Error("select products", zap.Error(err))
-		jsonErr(w, http.StatusInternalServerError, "db error")
-		return
-	}
-	defer rows.Close()
-
-	type product struct {
-		ID       int64  `json:"id"`
-		Name     string `json:"name"`
-		Emoji    string `json:"emoji"`
-		Category string `json:"category"`
-		Unit     string `json:"unit"`
-		Price    int64  `json:"price"`
-		Photo    string `json:"photo"` // <-- новое поле
-	}
-
-	var out []product
-	for rows.Next() {
-		var p product
-		if err := rows.Scan(&p.ID, &p.Name, &p.Emoji, &p.Category, &p.Unit, &p.Price, &p.Photo); err != nil {
-			h.logger.Error("scan product", zap.Error(err))
-			continue
-		}
-		out = append(out, p)
-	}
-
-	jsonOK(w, out)
-}
+// ============= ADMIN ADD PRODUCT (multipart) =============
 
 func (h *Handler) handleAdminAddProduct(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !h.isAdminRequest(r) {
+		jsonErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -584,9 +799,18 @@ func (h *Handler) handleAdminAddProduct(w http.ResponseWriter, r *http.Request) 
 	priceStr := strings.TrimSpace(r.FormValue("price"))
 	activeStr := strings.TrimSpace(r.FormValue("active"))
 	desc := strings.TrimSpace(r.FormValue("description"))
+	storeCode := strings.TrimSpace(r.FormValue("store_code"))
 
-	if name == "" || cat == "" || unit == "" || priceStr == "" {
-		jsonErr(w, http.StatusBadRequest, "name, category, unit, price are required")
+	if name == "" || cat == "" || unit == "" || priceStr == "" || storeCode == "" {
+		jsonErr(w, http.StatusBadRequest, "name, category, unit, price, store_code are required")
+		return
+	}
+
+	// validate store exists
+	var cnt int
+	_ = h.db.QueryRow(`SELECT COUNT(1) FROM stores WHERE code = ?`, storeCode).Scan(&cnt)
+	if cnt == 0 {
+		jsonErr(w, 400, "store not found")
 		return
 	}
 
@@ -611,21 +835,23 @@ func (h *Handler) handleAdminAddProduct(w http.ResponseWriter, r *http.Request) 
 	}
 
 	_, err = h.db.Exec(`
-		INSERT INTO products (name, emoji, category_slug, unit, price, active, description, photo_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, name, emoji, cat, unit, price, active, desc, photoPath)
+		INSERT INTO products (name, emoji, category_slug, unit, price, active, description, photo_path, store_code)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, name, emoji, cat, unit, price, active, desc, photoPath, storeCode)
 	if err != nil {
 		h.logger.Error("insert product", zap.Error(err))
 		jsonErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
-	h.notifyAdmin(fmt.Sprintf("➕ Добавлен товар\n\n%s %s\nКатегория: %s\nЦена: %d %s",
-		emoji, name, cat, price, unit,
+	h.notifyAdmin(fmt.Sprintf("➕ Добавлен товар\n\n%s %s\nКатегория: %s\nЦена: %d %s\nТочка: %s",
+		emoji, name, cat, price, unit, storeCode,
 	))
 
 	jsonOK(w, map[string]string{"status": "ok"})
 }
+
+// ========================= ORDERS =========================
 
 type orderItemIn struct {
 	ProductID int64   `json:"product_id"`
@@ -663,9 +889,7 @@ func (h *Handler) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
+	defer func() { _ = tx.Rollback() }()
 
 	var total int64
 	for _, it := range in.Items {
@@ -717,8 +941,15 @@ func (h *Handler) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "🧾 Новый заказ\n\n")
 	fmt.Fprintf(&b, "👤 Telegram ID: %s\n", in.TelegramID)
-	if store.Valid {
-		fmt.Fprintf(&b, "🏪 Магазин: %s\n", store.String)
+	if store.Valid && store.String != "" {
+		var name, addr sql.NullString
+		_ = h.db.QueryRow(`SELECT name, address FROM stores WHERE code = ?`, store.String).Scan(&name, &addr)
+		if name.Valid {
+			fmt.Fprintf(&b, "🏪 Магазин: %s\n", name.String)
+		}
+		if addr.Valid {
+			fmt.Fprintf(&b, "📍 Адрес: %s\n", addr.String)
+		}
 	}
 	fmt.Fprintf(&b, "🛒 Позиции:\n")
 	for _, it := range in.Items {

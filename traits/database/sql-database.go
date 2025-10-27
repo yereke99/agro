@@ -136,16 +136,18 @@ func createProductsTable(db *sql.DB) error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
 		emoji TEXT,
-		category_slug TEXT NOT NULL,        -- FK -> categories.slug (логическая ссылка)
+		category_slug TEXT NOT NULL,        -- FK (логическая)
 		unit TEXT NOT NULL DEFAULT '₸/кг',
 		price INTEGER NOT NULL,             -- базовая цена (для подписчиков)
 		active INTEGER NOT NULL DEFAULT 1,  -- 1/0
 		description TEXT,
 		photo_path TEXT,
+		store_code TEXT,                    -- 🔹 новая колонка: код точки из stores.code
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_products_cat ON products(category_slug, active);
+	CREATE INDEX IF NOT EXISTS idx_products_store ON products(store_code);
 	CREATE TRIGGER IF NOT EXISTS trg_products_updated_at
 	AFTER UPDATE ON products
 	FOR EACH ROW BEGIN

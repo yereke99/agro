@@ -47,8 +47,11 @@
     <form id="f">
       <div class="grid">
         <div>
-          <label>Название</label>
-          <input id="name" required placeholder="Картофель">
+          <label>Точка магазина</label>
+          <select id="store" required></select>
+          <div class="note" id="noStores" style="display:none; margin-top:8px">
+            Нет ни одной точки. Сначала <a href="/admin-add-store">создайте точку</a>.
+          </div>
         </div>
 
         <div>
@@ -59,6 +62,11 @@
             <option value="greens">Зелень</option>
             <option value="promo">Акции</option>
           </select>
+        </div>
+
+        <div>
+          <label>Название</label>
+          <input id="name" required placeholder="Картофель">
         </div>
 
         <div>
@@ -94,7 +102,7 @@
 
       <div class="row">
         <button type="button" class="btn cancel" onclick="location.href='/admin-show-catalog'">Назад</button>
-        <button type="submit" class="btn save">Сохранить</button>
+        <button type="submit" class="btn save" id="saveBtn">Сохранить</button>
       </div>
     </form>
   </div>
@@ -102,6 +110,21 @@
 <script>
   let tgId = null;
   try{ Telegram.WebApp.ready(); Telegram.WebApp.expand(); tgId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(_){}
+
+  const storeEl = document.getElementById('store');
+  const noStoresEl = document.getElementById('noStores');
+  const saveBtn = document.getElementById('saveBtn');
+
+  async function loadStores(){
+    const r = await fetch('/api/stores');
+    const js = await r.json();
+    if(!Array.isArray(js) || js.length===0){
+      storeEl.style.display='none'; noStoresEl.style.display='block'; saveBtn.disabled = true;
+      return;
+    }
+    noStoresEl.style.display='none'; storeEl.style.display='block'; saveBtn.disabled = false;
+    storeEl.innerHTML = js.map(s=>`<option value="${s.code}">${s.name} — ${s.address||'без адреса'}</option>`).join('');
+  }
 
   function preview(inp){
     const f = inp.files && inp.files[0]; if(!f) return;
@@ -111,13 +134,16 @@
 
   async function save(e){
     e.preventDefault();
-    // validate
+    if(saveBtn.disabled){ return; }
+
     const name  = nameEl.value.trim(), cat=catEl.value, unit=unitEl.value.trim(), price=priceEl.value;
-    if(!name || !cat || !unit || price===''){ return toast('Заполните обязательные поля'); }
+    const store = storeEl.value;
+    if(!name || !cat || !unit || price==='' || !store){ return toast('Заполните обязательные поля'); }
 
     const fd = new FormData();
     fd.append('name',name); fd.append('category',cat); fd.append('unit',unit);
     fd.append('price',price); fd.append('active',activeEl.value); fd.append('description',descEl.value.trim());
+    fd.append('store_code', store);
     if(photoEl.files && photoEl.files[0]) fd.append('photo', photoEl.files[0]);
 
     const headers = {}; if (tgId) headers['X-Telegram-Id'] = String(tgId);
@@ -138,6 +164,8 @@
   document.getElementById('f').addEventListener('submit', save);
   photoEl.addEventListener('change', function(){ preview(this); });
   document.getElementById('uploadBtn').addEventListener('click', ()=> photoEl.click());
+
+  (async function(){ await loadStores(); })();
 </script>
 </body>
 </html>

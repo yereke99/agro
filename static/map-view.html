@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <title>Точка на карте</title>
+
+  <!-- Telegram + Yandex Maps v3 -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="https://api-maps.yandex.ru/v3/?apikey=8a3e4da0-9ef2-4176-9203-e7014c1dba6f&lang=ru_RU"></script>
+
+  <style>
+    :root{
+      --tg-viewport-height: 100vh;
+      --tg-viewport-stable-height: 100vh;
+      --tg-safe-area-inset-top: 0px;
+      --tg-safe-area-inset-bottom: 0px;
+      --tg-safe-area-inset-left: 0px;
+      --tg-safe-area-inset-right: 0px;
+      --tg-content-safe-area-inset-top: 0px;
+      --border:#e7efe2;
+    }
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html{height:100%; width:100%; overflow:hidden}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,Arial,sans-serif;
+      background:#fff;
+      height:var(--tg-viewport-stable-height, 100vh);
+      height:var(--tg-viewport-stable-height, 100dvh);
+      width:100%;
+      overflow:hidden;
+      padding-top:calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+      padding-bottom:var(--tg-safe-area-inset-bottom, 0px);
+    }
+    .hdr{
+      position:fixed; inset:auto 0 auto 0;
+      top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px));
+      height:56px; display:flex; gap:8px; align-items:center; padding:8px 12px;
+      z-index:2; background:linear-gradient(180deg,#fff,#f7faf7); border-bottom:1px solid var(--border);
+    }
+    .btn{
+      width:44px; height:40px; border:0; border-radius:12px;
+      background:#fff; box-shadow:0 6px 18px rgba(0,0,0,.08); font-weight:900; cursor:pointer
+    }
+    .ttl{flex:1; font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+    #map{
+      position:fixed; left:0; right:0;
+      top:calc(56px + var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px));
+      bottom:var(--tg-safe-area-inset-bottom, 0px);
+    }
+    .hint{
+      position:fixed; left:12px; right:12px;
+      bottom:calc(16px + var(--tg-safe-area-inset-bottom,0px));
+      z-index:3; background:rgba(255,255,255,.92); border:1px solid var(--border);
+      padding:10px 12px; border-radius:12px; font-weight:700; text-align:center
+    }
+  </style>
+</head>
+<body>
+  <div class="hdr">
+    <button class="btn" id="backBtn">←</button>
+    <div id="title" class="ttl">Точка на карте</div>
+  </div>
+  <div id="map" role="region" aria-label="Карта магазина и вашей геопозиции"></div>
+  <div id="hint" class="hint">🏪 Магазин и 👤 вы. Масштаб ≈250 м</div>
+
+<script>
+  /* ===== Настройки масштаба ===== */
+  const TARGET_ZOOM_FOR_STORE = 17.5; // ~250 м «высоты» (можно подправить 17.3–17.8)
+
+  /* ===== Telegram safe-area ===== */
+  function updateViewportVars(){
+    let vh = window.innerHeight;
+    let stable = vh, sat=0, sab=0, sal=0, sar=0, ctop=0;
+    if (window.Telegram && Telegram.WebApp) {
+      const tg = Telegram.WebApp;
+      vh = tg.viewportHeight || vh;
+      stable = tg.viewportStableHeight || vh;
+      sat = tg.safeAreaInset?.top || 0;
+      sab = tg.safeAreaInset?.bottom || 0;
+      sal = tg.safeAreaInset?.left || 0;
+      sar = tg.safeAreaInset?.right || 0;
+      ctop = tg.contentSafeAreaInset?.top || 0;
+    }
+    const root = document.documentElement.style;
+    root.setProperty('--tg-viewport-height', `${vh}px`);
+    root.setProperty('--tg-viewport-stable-height', `${stable}px`);
+    root.setProperty('--tg-safe-area-inset-top', `${sat}px`);
+    root.setProperty('--tg-safe-area-inset-bottom', `${sab}px`);
+    root.setProperty('--tg-safe-area-inset-left', `${sal}px`);
+    root.setProperty('--tg-safe-area-inset-right', `${sar}px`);
+    root.setProperty('--tg-content-safe-area-inset-top', `${ctop}px`);
+  }
+
+  function waitForYmaps3(timeout = 15000, interval = 50){
+    return new Promise((resolve, reject)=>{
+      const t0 = Date.now();
+      (function tick(){
+        if (window.ymaps3 && (typeof ymaps3.ready === 'function' || typeof ymaps3.ready === 'object')) {
+          resolve();
+          return;
+        }
+        if (Date.now() - t0 > timeout) {
+          reject(new Error('ymaps3 load timeout'));
+          return;
+        }
+        setTimeout(tick, interval);
+      })();
+    });
+  }
+
+  /* ===== Helpers ===== */
+  function qs(name){ return new URL(location.href).searchParams.get(name)||''; }
+
+  function pinElement(labelEmoji){
+    const wrap = document.createElement('div');
+    wrap.style.position='relative';
+    wrap.style.width='28px'; wrap.style.height='36px';
+    const bubble = document.createElement('div');
+    bubble.style.position='absolute'; bubble.style.left='2px'; bubble.style.top='0';
+    bubble.style.width='24px'; bubble.style.height='24px';
+    bubble.style.borderRadius='12px';
+    bubble.style.background='#111';
+    bubble.style.color='#fff';
+    bubble.style.border='2px solid #fff';
+    bubble.style.boxShadow='0 6px 18px rgba(0,0,0,.25)';
+    bubble.style.display='flex'; bubble.style.alignItems='center'; bubble.style.justifyContent='center';
+    bubble.style.fontWeight='800'; bubble.style.fontSize='12px';
+    bubble.textContent = labelEmoji || '🏪';
+    const tail = document.createElement('div');
+    tail.style.position='absolute';
+    tail.style.left='13px'; tail.style.bottom='0';
+    tail.style.width='2px'; tail.style.height='12px';
+    tail.style.background='#111';
+    tail.style.borderRadius='2px';
+    wrap.appendChild(bubble); wrap.appendChild(tail);
+    return wrap;
+  }
+
+  const Y_KEY='8a3e4da0-9ef2-4176-9203-e7014c1dba6f';
+
+  function geocodeText(query){
+    return fetch(`https://geocode-maps.yandex.ru/1.x/?apikey=${Y_KEY}&geocode=${encodeURIComponent(query)}&format=json&lang=ru_RU&results=1`)
+      .then(r=>r.json())
+      .then(j=>{
+        const g=j.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
+        if(!g) return null;
+        const [lng,lat]=g.Point.pos.split(' ').map(Number);
+        return [lng,lat];
+      }).catch(()=>null);
+  }
+
+  function getUserCoords(){
+    return new Promise(res=>{
+      if(!navigator.geolocation) return res(null);
+      navigator.geolocation.getCurrentPosition(
+        p=>res([p.coords.longitude,p.coords.latitude]),
+        ()=>res(null),
+        {enableHighAccuracy:true, timeout:2500}
+      );
+    });
+  }
+
+  async function loadStoreMeta(){
+    const viaQS = { name: qs('name'), addr: qs('addr') };
+    if (viaQS.addr) return viaQS;
+
+    let telegramId=null; try{ telegramId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(_){}
+    if(!telegramId) return {name:'Точка', addr:''};
+    const r=await fetch(`/api/user/subscription-status?telegram_id=${telegramId}`);
+    const j=await r.json();
+    return {name: j.store_name||'Точка', addr: j.store_address||''};
+  }
+
+  /* ===== Bootstrap ===== */
+  document.addEventListener('DOMContentLoaded', async ()=>{
+    try{
+      Telegram.WebApp?.ready?.();
+      Telegram.WebApp?.expand?.();
+      Telegram.WebApp?.disableVerticalSwipes?.();
+    }catch(_){}
+    updateViewportVars();
+    Telegram.WebApp?.onEvent?.('viewportChanged', updateViewportVars);
+    window.addEventListener('resize', ()=> setTimeout(updateViewportVars, 50));
+    window.addEventListener('orientationchange', ()=> setTimeout(updateViewportVars, 150));
+
+    document.getElementById('backBtn').onclick = ()=> history.length>1 ? history.back() : (location.href='/catalog');
+
+    try{
+      await waitForYmaps3();
+      await ymaps3.ready;
+    }catch(e){
+      alert('Не удалось загрузить карту (таймаут). Проверьте сеть/VPN.');
+      return;
+    }
+
+    const meta = await loadStoreMeta();
+    document.getElementById('title').textContent = meta.name || 'Точка на карте';
+    const hintEl = document.getElementById('hint');
+    hintEl.textContent = `📍 ${meta.addr || 'Адрес не указан'} • Масштаб ≈250 м`;
+
+    const {YMap,YMapDefaultSchemeLayer,YMapDefaultFeaturesLayer,YMapMarker} = ymaps3;
+
+    const map = new YMap(document.getElementById('map'), {
+      location:{center:[76.889709,43.238949], zoom:12}
+    });
+    map.addChild(new YMapDefaultSchemeLayer({}));
+    map.addChild(new YMapDefaultFeaturesLayer({}));
+
+    const user  = await getUserCoords();                 // [lng,lat] | null
+    const store = meta.addr ? await geocodeText(meta.addr) : null; // [lng,lat] | null
+
+    if(!user && !store){
+      alert('Нет геолокации и не найден адрес точки');
+      return;
+    }
+
+    if(store){
+      const el = pinElement('🏪');
+      const storeMarker = new YMapMarker({coordinates:store}, el);
+      map.addChild(storeMarker);
+    }
+    if(user){
+      const el = pinElement('👤'); el.firstChild.style.background = '#3b82f6';
+      const userMarker = new YMapMarker({coordinates:user}, el);
+      map.addChild(userMarker);
+    }
+
+    // ── Центр ВЕЗДЕ на магазине; фиксированный плотный зум ≈250м.
+    if (store) {
+      map.update({location:{center:store, zoom:TARGET_ZOOM_FOR_STORE}, duration:300});
+      // добивка для идеального позиционирования пина
+      requestAnimationFrame(()=> {
+        map.update({location:{center:store, zoom:TARGET_ZOOM_FOR_STORE}, duration:0});
+      });
+    } else if (user) { // на всякий случай, если магазин не найден геокодером
+      map.update({location:{center:user, zoom:TARGET_ZOOM_FOR_STORE}, duration:300});
+    }
+  });
+</script>
+</body>
+</html>

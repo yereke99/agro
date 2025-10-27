@@ -46,8 +46,8 @@
     <form id="f">
       <div class="grid">
         <div>
-          <label>Название</label>
-          <input id="name" required>
+          <label>Точка магазина</label>
+          <select id="store" required></select>
         </div>
 
         <div>
@@ -58,6 +58,11 @@
             <option value="greens">Зелень</option>
             <option value="promo">Акции</option>
           </select>
+        </div>
+
+        <div>
+          <label>Название</label>
+          <input id="name" required>
         </div>
 
         <div>
@@ -109,6 +114,13 @@
   let tgId = null, productId = null, originalPhoto = '';
   try{ Telegram.WebApp.ready(); Telegram.WebApp.expand(); tgId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(_){}
 
+  const storeEl = document.getElementById('store');
+  async function loadStores(){
+    const r = await fetch('/api/stores');
+    const js = await r.json();
+    storeEl.innerHTML = (js||[]).map(s=>`<option value="${s.code}">${s.name} — ${s.address||''}</option>`).join('');
+  }
+
   function getParam(name){ return new URL(location.href).searchParams.get(name); }
   function photoURL(p){
     const x=(p||'').trim(); if(!x) return '';
@@ -130,6 +142,7 @@
     priceEl.value= p.price||0;
     activeEl.value = String(p.active?1:0);
     descEl.value = p.description||'';
+    storeEl.value = p.store_code||'';
 
     originalPhoto = p.photo||'';
     const src = photoURL(originalPhoto);
@@ -149,6 +162,7 @@
     fd.append('price', price);
     fd.append('active', activeEl.value);
     fd.append('description', descEl.value.trim());
+    fd.append('store_code', storeEl.value);
     fd.append('remove_photo', document.getElementById('removePhoto').checked ? '1' : '0');
     if(photoEl.files && photoEl.files[0]) fd.append('photo', photoEl.files[0]);
 
@@ -178,7 +192,7 @@
     const r = new FileReader(); r.onload = e => { imgEl.src=e.target.result; imgEl.style.display='block'; }; r.readAsDataURL(f);
   });
 
-  (async function(){ await load(); })();
+  (async function(){ await loadStores(); await load(); })();
 </script>
 </body>
 </html>

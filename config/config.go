@@ -12,6 +12,7 @@ type Config struct {
 	MiniAppUrl      string
 	MiniAppUrlAdmin string
 	AdminID         int64
+	YandexAPIKey    string
 }
 
 func NewConfig() (*Config, error) {
@@ -35,8 +36,9 @@ func NewConfig() (*Config, error) {
 		Port:            port,
 		DBPath:          dbPath,
 		ChannelName:     "@jaiAngmeAitamyz",
-		MiniAppUrl:      "https://40643a68b9e5.ngrok-free.app",
-		MiniAppUrlAdmin: "https://40643a68b9e5.ngrok-free.app/admin-show-catalog",
+		MiniAppUrl:      "https://52f577865a02.ngrok-free.app",
+		MiniAppUrlAdmin: "https://52f577865a02.ngrok-free.app/admin-show-catalog",
+		YandexAPIKey:    "8a3e4da0-9ef2-4176-9203-e7014c1dba6f",
 		AdminID:         800703982,
 	}, nil
 }

@@ -22,45 +22,30 @@
       padding-bottom:calc(var(--tg-safe-area-inset-bottom,0px) + 12px);
     }
     .wrap{padding:16px}
-    .head{display:flex; gap:8px; align-items:center; margin-bottom:12px}
+    .head{display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap}
     .h{font-weight:900; font-size:22px}
     .btn{padding:10px 14px; border-radius:14px; border:0; font-weight:900; cursor:pointer}
     .btn.add{background:linear-gradient(135deg,var(--brand),var(--brand-2)); color:#fff}
+    .btn.secondary{background:#eef5ea; color:#2d5b2d}
     .search{margin:12px 0}
     .search input{width:100%; padding:12px 12px; border:1px solid var(--border); border-radius:12px; background:#fff}
 
     .list{margin-top:8px}
     .row{
-      display:grid; grid-template-columns:56px 1fr; /* ⬅ two columns: img + content */
-      gap:12px;
+      display:grid; grid-template-columns:56px 1fr; gap:12px;
       padding:12px; background:#fff; border:1px solid var(--border); border-radius:16px; margin-bottom:12px; box-shadow:var(--shadow);
-      align-items:center;
-      overflow:hidden; /* ⬅ prevent pills from bleeding out */
+      align-items:center; overflow:hidden;
     }
     .pic{width:56px; height:56px; border-radius:12px; border:1px solid var(--border); overflow:hidden; background:#fff}
     .pic img{width:100%; height:100%; object-fit:cover}
-
     .name{font-weight:900; font-size:18px}
     .muted{color:var(--muted); font-size:12px; margin-top:2px}
     .price{font-weight:900; font-size:20px; margin-top:6px}
-
-    .actions{
-      grid-column:2; /* ⬅ place actions in the content column */
-      justify-self:end;
-      display:flex; gap:8px; flex-wrap:wrap; /* wrap on small screens */
-      margin-top:8px;
-    }
+    .actions{grid-column:2; justify-self:end; display:flex; gap:8px; flex-wrap:wrap; margin-top:8px}
     .btn.sec{background:#eef5ea; color:#2d5b2d; white-space:nowrap}
     .btn.del{background:#ffe9e7; color:#a1221f; white-space:nowrap}
-
     .empty{margin-top:24px; color:var(--muted); text-align:center}
-
-    /* On wider screens, keep actions on the same line tightly */
-    @media (min-width:520px){
-      .row{grid-template-columns:56px 1fr}
-      .actions{margin-top:0}
-      .info-wrap{display:flex; align-items:center; justify-content:space-between; gap:12px}
-    }
+    .note{color:#b26b00; background:#fff9ed; border:1px dashed #ffd9a6; padding:10px 12px; border-radius:12px; margin-top:10px}
   </style>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
@@ -69,7 +54,9 @@
     <div class="head">
       <div class="h">Каталог (админ)</div>
       <button class="btn add" id="addBtn">Добавить товар</button>
+      <button class="btn secondary" id="addStoreBtn">Добавить точку</button>
     </div>
+    <div id="storesNote" class="note" style="display:none">Нет ни одной точки. Сначала добавьте точку, затем товары будут привязываться к ней.</div>
     <div class="search"><input id="q" placeholder="Поиск: название, категория..."></div>
     <div id="list" class="list"></div>
     <div id="empty" class="empty" style="display:none">Ничего не найдено…</div>
@@ -80,10 +67,31 @@
   try{ Telegram.WebApp.ready(); Telegram.WebApp.expand(); tgId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(_){}
 
   document.getElementById('addBtn').onclick = ()=> location.href='/admin-add';
+  document.getElementById('addStoreBtn').onclick = ()=> location.href='/admin-add-store';
 
   const listEl = document.getElementById('list');
   const qEl = document.getElementById('q');
   const emptyEl = document.getElementById('empty');
+  const storesNoteEl = document.getElementById('storesNote');
+  const addBtn = document.getElementById('addBtn');
+
+  let storeMap = {}; // code -> {name,address}
+
+  async function loadStores(){
+    const r = await fetch('/api/stores');
+    const js = await r.json();
+    storeMap = {};
+    (js||[]).forEach(s=> storeMap[s.code] = s);
+    if(!Array.isArray(js) || js.length===0){
+      storesNoteEl.style.display='block';
+      addBtn.disabled = true;
+      addBtn.textContent = 'Добавить товар (нет точек)';
+    }else{
+      storesNoteEl.style.display='none';
+      addBtn.disabled = false;
+      addBtn.textContent = 'Добавить товар';
+    }
+  }
 
   function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
   function escapeAttr(s){ return String(s??'').replace(/"/g,'&quot;'); }
@@ -98,9 +106,7 @@
     const headers = {};
     if (tgId) headers['X-Telegram-Id'] = String(tgId);
     const r = await fetch('/api/admin/products', {headers});
-    if(!r.ok){
-      block('Доступ запрещён'); return;
-    }
+    if(!r.ok){ block('Доступ запрещён'); return; }
     const js = await r.json();
     window._all = Array.isArray(js) ? js : [];
     render();
@@ -111,7 +117,8 @@
     const items = (window._all||[]).filter(p=>{
       if(!term) return true;
       return (p.name||'').toLowerCase().includes(term)
-          || (p.category||'').toLowerCase().includes(term);
+          || (p.category||'').toLowerCase().includes(term)
+          || (p.store_code||'').toLowerCase().includes(term);
     });
 
     if(items.length===0){
@@ -123,21 +130,20 @@
       const src = photoURL(p.photo);
       const pic = src ? `<img src="${escapeAttr(src)}" alt="">` : '';
       const active = Number(p.active) ? 'Активен' : 'Скрыт';
+      const st = storeMap[p.store_code] || {};
+      const storeTitle = st.name ? `${st.name}${st.address ? ' • '+st.address:''}` : (p.store_code||'—');
       return `
       <div class="row" data-id="${p.id}">
         <div class="pic">${pic}</div>
         <div class="info">
-          <div class="info-wrap">
-            <div>
-              <div class="name">${escapeHtml(p.name)}</div>
-              <div class="muted">${labelCat(p.category)} • ${p.unit || '₸/кг'} • ${active}</div>
-              <div class="price">${p.price} ₸</div>
-            </div>
-            <div class="actions">
-              <button class="btn sec" data-act="edit">Редактировать</button>
-              <button class="btn del" data-act="del">Удалить</button>
-            </div>
-          </div>
+          <div class="name">${escapeHtml(p.name)}</div>
+          <div class="muted">${labelCat(p.category)} • ${p.unit || '₸/кг'} • ${active}</div>
+          <div class="price">${p.price} ₸</div>
+          <div class="muted">Точка: ${escapeHtml(storeTitle)}</div>
+        </div>
+        <div class="actions">
+          <button class="btn sec" data-act="edit">Редактировать</button>
+          <button class="btn del" data-act="del">Удалить</button>
         </div>
       </div>`;
     }).join('');
@@ -187,12 +193,15 @@
   function block(text){
     document.getElementById('wrap').innerHTML =
       `<div class="h" style="margin:16px 16px 8px 16px">Доступ запрещён</div>
-       <div class="note" style="margin:0 16px; color:#b26b00; background:#fff9ed; border:1px dashed #ffd9a6; padding:10px 12px; border-radius:12px">${text||''}</div>`;
+       <div class="note" style="margin:0 16px;">${text||''}</div>`;
   }
 
   qEl.addEventListener('input', ()=> render());
 
-  (async function(){ await load(); })();
+  (async function(){
+    await loadStores();
+    await load();
+  })();
 </script>
 </body>
 </html>

@@ -7,15 +7,8 @@
   <title>АГРО Клуб — Каталог</title>
   <style>
     :root{
-      --bg:#f6f9f4;
-      --ink:#0b1f0b;
-      --muted:#6b806b;
-      --brand:#19a461;
-      --brand-2:#88c057;
-      --danger:#e53935;
-      --card:#ffffff;
-      --border:#e7efe2;
-      --shadow:0 10px 30px rgba(25,164,97,.15);
+      --bg:#f6f9f4; --ink:#0b1f0b; --muted:#6b806b; --brand:#19a461; --brand-2:#88c057;
+      --danger:#e53935; --card:#ffffff; --border:#e7efe2; --shadow:0 10px 30px rgba(25,164,97,.15);
     }
     *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     html,body{height:100%;background:var(--bg);color:var(--ink)}
@@ -26,38 +19,27 @@
       padding-top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px) + 15px);
       padding-bottom:calc(var(--tg-safe-area-inset-bottom,0px) + 12px);
     }
-    .header{
-      position:sticky; top:0; z-index:10;
-      background:linear-gradient(180deg,#ffffff,#f3f8ef);
-      border-bottom:1px solid var(--border);
-      padding:10px 16px 12px;
-      display:flex; align-items:center; justify-content:space-between; gap:12px;
-      backdrop-filter:saturate(140%) blur(8px);
-    }
+    .header{position:sticky; top:0; z-index:10; background:linear-gradient(180deg,#ffffff,#f3f8ef);
+      border-bottom:1px solid var(--border); padding:10px 16px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px;
+      backdrop-filter:saturate(140%) blur(8px);}
     .title{font-weight:900;letter-spacing:.2px}
     .sub{font-size:12px;color:var(--muted)}
     .right{display:flex;align-items:center;gap:8px}
     .badge{padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:#fff;color:var(--brand);font-weight:800;font-size:12px}
+
+    .storeInfo{padding:10px 16px; display:grid; gap:4px; background:#fff; border-bottom:1px solid var(--border)}
+    .storeName{font-weight:900;}
+    .storeAddr{font-size:12px; color:var(--muted)}
+
     .filters{display:flex;gap:8px;overflow:auto;padding:10px 16px 8px}
-    .pill{
-      white-space:nowrap; padding:8px 14px; border-radius:999px; border:1px solid var(--border);
-      background:#fff; font-weight:800; color:var(--ink);
-    }
+    .pill{white-space:nowrap; padding:8px 14px; border-radius:999px; border:1px solid var(--border); background:#fff; font-weight:800; color:var(--ink);}
     .pill.active{background:var(--brand); color:#fff; border-color:var(--brand)}
     .search{padding:0 16px 12px}
-    .search input{
-      width:100%; padding:12px 14px; border-radius:12px; border:1px solid var(--border);
-      background:#fff; outline:none;
-    }
+    .search input{width:100%; padding:12px 14px; border-radius:12px; border:1px solid var(--border); background:#fff; outline:none}
     .list{overflow:auto}
-    .row{
-      display:flex; gap:12px; padding:12px 16px; align-items:center;
-      border-bottom:1px solid var(--border); background:#ffffffaa;
-    }
-    .pic{
-      width:64px; height:64px; border-radius:12px; border:1px solid var(--border);
-      display:flex; align-items:center; justify-content:center; background:#fff; font-size:28px; overflow:hidden;
-    }
+    .row{display:flex; gap:12px; padding:12px 16px; align-items:center; border-bottom:1px solid var(--border); background:#ffffffaa}
+    .row .left{display:flex; gap:12px; flex:1; align-items:center; cursor:pointer}
+    .pic{width:64px; height:64px; border-radius:12px; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; background:#fff; font-size:28px; overflow:hidden}
     .pic img{width:100%; height:100%; object-fit:cover; border-radius:12px}
     .info{flex:1}
     .name{font-weight:900}
@@ -65,39 +47,33 @@
     .price{font-size:16px; font-weight:900}
     .unit{font-size:12px; color:var(--muted); margin-left:6px}
     .qty{display:flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--border); padding:6px; border-radius:999px}
-    .qty button{
-      width:28px;height:28px;border-radius:50%;border:0;background:var(--brand);color:#fff;font-weight:900;cursor:pointer;
-    }
+    .qty button{width:28px;height:28px;border-radius:50%;border:0;background:var(--brand);color:#fff;font-weight:900;cursor:pointer;}
     .qty span{min-width:18px; text-align:center; font-weight:800}
-    .floating{
-      position:fixed; left:16px; right:16px;
-      bottom:calc(16px + var(--tg-safe-area-inset-bottom,0px));
-      display:flex; gap:8px; z-index:50;
-    }
-    .pay{
-      flex:1; padding:14px; border-radius:14px; border:0;
-      background:linear-gradient(135deg,var(--brand),var(--brand-2));
-      color:#fff; font-weight:900; box-shadow:var(--shadow); cursor:pointer;
-    }
-    .alert{
-      margin:10px 16px 0; padding:12px 14px; border-radius:12px; border:1px dashed #ffd9a6;
-      background:#fff9ed; color:#b26b00; font-weight:700; display:none;
-    }
+    .floating{position:fixed; left:16px; right:16px; bottom:calc(16px + var(--tg-safe-area-inset-bottom,0px)); display:flex; gap:8px; z-index:50;}
+    .pay{flex:1; padding:14px; border-radius:14px; border:0; background:linear-gradient(135deg,var(--brand),var(--brand-2));
+      color:#fff; font-weight:900; box-shadow:var(--shadow); cursor:pointer;}
+    .alert{margin:10px 16px 0; padding:12px 14px; border-radius:12px; border:1px dashed #ffd9a6; background:#fff9ed; color:#b26b00; font-weight:700; display:none;}
     .empty{padding:48px 16px; text-align:center; color:var(--muted)}
     ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:#cfe4cf;border-radius:2px}
   </style>
+
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
   <header class="header">
     <div>
       <div class="title">Каталог</div>
-      <div class="sub">Алтын Орда — актуальные цены</div>
+      <div class="sub" id="storeTitle">Загружаем точку…</div>
     </div>
     <div class="right">
       <div id="subBadge" class="badge">Проверяем…</div>
     </div>
   </header>
+
+  <section class="storeInfo">
+    <div class="storeName" id="storeName">Точка не выбрана</div>
+    <div class="storeAddr" id="storeAddress">Адрес точки не выбран</div>
+  </section>
 
   <div class="filters" id="filters">
     <button class="pill active" data-cat="all">Все</button>
@@ -120,7 +96,6 @@
   </div>
 
 <script>
-  // Boot
   try{ Telegram.WebApp.ready(); Telegram.WebApp.expand(); }catch(_){}
   let telegramId = null;
   try{ telegramId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(_){}
@@ -131,61 +106,78 @@
   const subBadge = document.getElementById('subBadge');
   const markupAlert = document.getElementById('markupAlert');
   const filtersEl = document.getElementById('filters');
+  const storeTitleEl = document.getElementById('storeTitle');
+  const storeNameEl = document.getElementById('storeName');
+  const storeAddressEl = document.getElementById('storeAddress');
 
   let isSubscribed = false;
-  let products = [];       // [{id, name, emoji, unit, price, category, photo}]
-  let cart = {};           // {productId: qty}
+  let products = [];
+  let cart = {};
   let currentCat = 'all';
 
-  // ===== Helpers =====
+  // Справочник точек: code -> {name,address}
+  let storesByCode = Object.create(null);
+
+  function toast(t){ if (Telegram?.WebApp?.showAlert) Telegram.WebApp.showAlert(t); else alert(t); }
   function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
   function escapeAttr(s){ return String(s??'').replace(/"/g,'&quot;'); }
-
-  // Make absolute photo URL: supports "/uploads/..." from DB
   function photoURL(p){
     const raw = (p.photo || '').trim();
     if(!raw) return '';
-    if(/^https?:\/\//i.test(raw)) return raw; // already absolute
-    // build absolute from current origin (handles Telegram WebApp context)
+    if(/^https?:\/\//i.test(raw)) return raw;
     const base = window.location.origin.replace(/\/+$/,'');
     const path = raw.startsWith('/') ? raw : '/'+raw;
     return base + path;
   }
 
-  // 1) Subscription status
+  async function loadStores(){
+    try{
+      const r = await fetch('/api/stores');
+      const js = await r.json();
+      for(const s of js){
+        storesByCode[s.code] = {name:s.name, address:s.address||''};
+      }
+    }catch(e){ console.error('stores',e); }
+  }
+
   async function loadSub(){
     try{
       const q = telegramId ? `?telegram_id=${telegramId}` : '';
       const r = await fetch(`/api/user/subscription-status${q}`);
       const js = await r.json();
       isSubscribed = !!js.active;
+
+      const storeDisplayName = js.store_name || 'Точка не выбрана';
+      const storeAddress = js.store_address || '';
+
+      storeTitleEl.textContent = storeDisplayName;
+      storeNameEl.textContent = storeDisplayName;
+      storeAddressEl.textContent = storeAddress || 'Адрес точки не выбран';
+
       if(isSubscribed){
-        subBadge.textContent = `Активна до ${js.until}`;
+        subBadge.textContent = js.until ? `Активна до ${js.until}` : 'Активна';
         subBadge.style.color = 'var(--brand)';
       }else{
         subBadge.textContent = 'Неактивна';
         subBadge.style.color = '#c62828';
         markupAlert.style.display = 'block';
       }
-    }catch(_){
+    }catch(e){
+      console.error(e);
       subBadge.textContent = 'Неизвестно';
     }
   }
 
-  // 2) Load products
   async function loadProducts(){
-    // [{id, name, emoji, unit:"₸/кг", price:120, category:"vegetables", photo:"/uploads/.."}]
-    const r = await fetch('/api/products');
+    const headers = {};
+    if (telegramId) headers['X-Telegram-Id'] = String(telegramId);
+    const r = await fetch('/api/products', {headers});
     const js = await r.json();
     products = Array.isArray(js) ? js : [];
     render();
   }
 
-  function priceFor(p){
-    const base = Number(p.price)||0;
-    if(isSubscribed) return base;
-    return Math.round(base * 1.5); // наценка без подписки
-  }
+  function priceFor(p){ const base = Number(p.price)||0; return isSubscribed ? base : Math.round(base*1.5); }
 
   function filtered(){
     let arr = products;
@@ -198,29 +190,42 @@
     return arr;
   }
 
+  function labelCat(c){
+    switch(c){
+      case 'vegetables': return 'Овощи';
+      case 'fruits': return 'Фрукты';
+      case 'greens': return 'Зелень';
+      case 'promo': return 'Акции';
+      default: return 'Другое';
+    }
+  }
+
   function render(){
     const items = filtered();
     if(items.length===0){
       listEl.innerHTML = `<div class="empty">Ничего не найдено…</div>`;
-      recalc();
-      return;
+      recalc(); return;
     }
     listEl.innerHTML = items.map(p=>{
       const qty = cart[p.id]||0;
-
       const src = photoURL(p);
       const pic = src
         ? `<img src="${escapeAttr(src)}" alt="${escapeAttr(p.name||'')}" loading="lazy"
                onerror="this.onerror=null; this.remove(); this.closest('.pic').textContent='${(p.emoji||'🧺').replace(/'/g,'&#39;')}';">`
         : (p.emoji || '🧺');
 
+      // добавим data-store-code для клика
+      const storeCode = (p.store_code||'').trim();
+
       return `
-      <div class="row" data-id="${p.id}">
-        <div class="pic">${pic}</div>
-        <div class="info">
-          <div class="name">${escapeHtml(p.name||'Товар')}</div>
-          <div class="muted">${labelCat(p.category)} • ${p.unit||'₸/кг'}</div>
-          <div class="price">${priceFor(p)} ₸ <span class="unit">${p.unit||'₸/кг'}</span></div>
+      <div class="row" data-id="${p.id}" data-store="${escapeAttr(storeCode)}">
+        <div class="left" data-act="open-map">
+          <div class="pic">${pic}</div>
+          <div class="info">
+            <div class="name">${escapeHtml(p.name||'Товар')}</div>
+            <div class="muted">${labelCat(p.category)} • ${p.unit||'₸/кг'}</div>
+            <div class="price">${priceFor(p)} ₸ <span class="unit">${p.unit||'₸/кг'}</span></div>
+          </div>
         </div>
         <div class="qty">
           <button data-act="dec">−</button>
@@ -232,29 +237,38 @@
     recalc();
   }
 
-  function labelCat(c){
-    switch(c){
-      case 'vegetables': return 'Овощи';
-      case 'fruits': return 'Фрукты';
-      case 'greens': return 'Зелень';
-      case 'promo': return 'Акции';
-      default: return 'Другое';
-    }
-  }
-
-  // qty controls (event delegation)
   listEl.addEventListener('click', (e)=>{
-    const btn = e.target.closest('button[data-act]');
-    if(!btn) return;
-    const row = e.target.closest('.row'); if(!row) return;
-    const id = row.getAttribute('data-id');
-    const act = btn.getAttribute('data-act');
-    const span = row.querySelector('.qty span');
-    let qty = cart[id]||0;
-    qty = act==='inc' ? qty+1 : Math.max(0, qty-1);
-    cart[id]=qty; if(qty===0) delete cart[id];
-    span.textContent = qty;
-    recalc();
+    const decInc = e.target.closest('button[data-act]');
+    if (decInc) {
+      const row = e.target.closest('.row'); if(!row) return;
+      const id = row.getAttribute('data-id');
+      const act = decInc.getAttribute('data-act');
+      const span = row.querySelector('.qty span');
+      let qty = cart[id]||0;
+      qty = act==='inc' ? qty+1 : Math.max(0, qty-1);
+      cart[id]=qty; if(qty===0) delete cart[id];
+      span.textContent = qty;
+      recalc();
+      return;
+    }
+    const open = e.target.closest('[data-act="open-map"]');
+    if (open) {
+      const row = open.closest('.row');
+      const storeCode = (row?.dataset.store||'').trim();
+      if(!storeCode){
+        toast('Для этого товара не привязана точка');
+        return;
+      }
+      const meta = storesByCode[storeCode];
+      if(!meta || !meta.address){
+        toast('Адрес точки не найден');
+        return;
+      }
+      const name = encodeURIComponent(meta.name||'Точка');
+      const addr = encodeURIComponent(meta.address||'');
+      // Можно дополнить координатами, если вы их добавите в БД и API
+      location.href = `/map-view?name=${name}&addr=${addr}`;
+    }
   });
 
   function recalc(){
@@ -269,45 +283,27 @@
     payBtn.textContent = `🛒 Корзина · ${sum} ₸`;
   }
 
-  // Search debounce
-  let t; qEl.addEventListener('input', ()=>{
-    clearTimeout(t); t = setTimeout(render, 200);
-  });
-
-  // Filters
+  let t; qEl.addEventListener('input', ()=>{ clearTimeout(t); t = setTimeout(render, 200); });
   filtersEl.addEventListener('click', (e)=>{
     const b = e.target.closest('.pill'); if(!b) return;
     filtersEl.querySelectorAll('.pill').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active');
-    currentCat = b.getAttribute('data-cat');
-    render();
+    b.classList.add('active'); currentCat = b.getAttribute('data-cat'); render();
   });
 
-  // Pay (подтверждение заказа)
   payBtn.addEventListener('click', async ()=>{
     const items = Object.entries(cart).map(([id,qty])=>{
       const p = products.find(x=>String(x.id)===String(id));
       return p ? {product_id:id, name:p.name, qty, unit:p.unit, price:priceFor(p)} : null;
     }).filter(Boolean);
-
     const total = items.reduce((s,x)=>s + x.price*x.qty, 0);
-    const ok = confirm(`Подтвердить заказ на сумму ${total} ₸?`);
-    if(!ok) return;
-
-    await fetch('/api/orders/create',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({telegram_id:telegramId, items})
-    });
-
+    const ok = confirm(`Подтвердить заказ на сумму ${total} ₸?`); if(!ok) return;
+    await fetch('/api/orders/create',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({telegram_id:telegramId, items}) });
     if(Telegram?.WebApp?.showAlert) Telegram.WebApp.showAlert('Заказ отправлен администратору. Ожидайте счёт Kaspi.');
-    cart = {};
-    render();
+    cart = {}; render();
   });
 
-  // Start
   (async function init(){
-    await loadSub();
+    await Promise.all([loadStores(), loadSub()]);
     await loadProducts();
   })();
 </script>

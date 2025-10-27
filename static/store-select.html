@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+  <title>Выбор точки</title>
+  <style>
+    :root{--border:#e7efe2;--brand:#19a461}
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,Arial,sans-serif;background:#fff}
+    header{position:sticky; top:0; background:#fff; border-bottom:1px solid var(--border); padding:10px 12px; display:flex; gap:8px; align-items:center}
+    .btn{padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:#fff; cursor:pointer}
+    .grid{padding:10px 12px; display:grid; gap:8px}
+    .item{padding:12px; border:1px solid var(--border); border-radius:12px; display:grid; gap:4px; cursor:pointer}
+    .name{font-weight:900}
+    .addr{font-size:12px; color:#6b806b}
+    .preview{height:200px; border-top:1px solid var(--border)}
+    .actions{position:sticky; bottom:0; background:#fff; border-top:1px solid var(--border); padding:12px}
+    .primary{width:100%; padding:14px; border:0; border-radius:12px; font-weight:900; color:#fff; background:linear-gradient(135deg,#19a461,#88c057)}
+    #map{width:100%; height:100%}
+  </style>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="https://api-maps.yandex.ru/v3/?apikey=8a3e4da0-9ef2-4176-9203-e7014c1dba6f&lang=ru_RU"></script>
+</head>
+<body>
+  <header>
+    <button class="btn" onclick="history.length>1?history.back():location.href='/catalog'">←</button>
+    <div style="font-weight:900">Выберите точку магазина</div>
+  </header>
+
+  <div id="list" class="grid" aria-live="polite">Загрузка…</div>
+
+  <div class="preview"><div id="map"></div></div>
+
+  <div class="actions">
+    <button id="chooseBtn" class="primary" disabled>Выбрать точку</button>
+  </div>
+
+<script>
+  try{ Telegram.WebApp.ready(); Telegram.WebApp.expand(); }catch(_){}
+  let telegramId=null; try{ telegramId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(_){}
+
+  const listEl = document.getElementById('list');
+  const chooseBtn = document.getElementById('chooseBtn');
+
+  let chosen=null, stores=[];
+  let map, marker;
+
+  function markerEl(){ const d=document.createElement('div'); d.style.cssText='width:22px;height:22px;border-radius:50%;background:#000;border:2px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,.25)'; return d; }
+  async function geocodeText(q){
+    const Y_KEY='8a3e4da0-9ef2-4176-9203-e7014c1dba6f';
+    const r=await fetch(`https://geocode-maps.yandex.ru/1.x/?apikey=${Y_KEY}&geocode=${encodeURIComponent(q)}&format=json&lang=ru_RU&results=1`);
+    const j=await r.json();
+    const g=j.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject; if(!g) return null;
+    const [lng,lat]=g.Point.pos.split(' ').map(Number); return [lng,lat];
+  }
+
+  async function initMap(){
+    await ymaps3.ready;
+    const {YMap,YMapDefaultSchemeLayer,YMapDefaultFeaturesLayer,YMapMarker} = ymaps3;
+    map = new YMap(document.getElementById('map'), {location:{center:[76.889709,43.238949], zoom:11}});
+    map.addChild(new YMapDefaultSchemeLayer({}));
+    map.addChild(new YMapDefaultFeaturesLayer({}));
+    return {YMapMarker};
+  }
+
+  async function render(){
+    const r=await fetch('/api/stores'); stores=await r.json();
+    if(!stores.length){ listEl.textContent='Нет точек'; return; }
+    listEl.innerHTML = stores.map(s=>`
+      <div class="item" data-code="${s.code}">
+        <div class="name">${s.name}</div>
+        <div class="addr">${s.address || '—'}</div>
+      </div>`).join('');
+  }
+
+  listEl.addEventListener('click', async (e)=>{
+    const card=e.target.closest('.item'); if(!card) return;
+    const code=card.getAttribute('data-code');
+    chosen = stores.find(x=>x.code===code);
+    chooseBtn.disabled = !chosen;
+
+    const {YMapMarker} = ymaps3;
+    if(!map) await initMap();
+
+    if(marker){ try{ map.removeChild(marker);}catch(_){ } marker=null; }
+    const coords = chosen.address ? await geocodeText(chosen.address) : null;
+    if(coords){
+      marker = new YMapMarker({coordinates:coords}, markerEl());
+      map.addChild(marker);
+      map.update({location:{center:coords, zoom:14}, duration:300});
+    }
+  });
+
+  chooseBtn.addEventListener('click', async ()=>{
+    if(!chosen){ return; }
+    const headers={'Content-Type':'application/json'};
+    if(telegramId) headers['X-Telegram-Id']=String(telegramId);
+    await fetch('/api/user/set-store',{method:'POST', headers, body:JSON.stringify({telegram_id:telegramId, store:chosen.code})});
+    if(Telegram?.WebApp?.showAlert) Telegram.WebApp.showAlert('Точка выбрана');
+    location.href='/catalog';
+  });
+
+  (async function(){ 
+    if(!window.ymaps3){ /* карта нужна только для предпросмотра — загрузится сама */ }
+    await render(); 
+  })();
+</script>
+</body>
+</html>
