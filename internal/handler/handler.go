@@ -569,8 +569,202 @@ func (h *Handler) handleGetProducts(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, out)
 }
 
-// ========================= ADMIN PRODUCTS =========================
+func (h *Handler) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
+	var in createOrderIn
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
 
+	var tgStr string
+	if err := json.Unmarshal(in.TelegramID, &tgStr); err != nil {
+		var tgNum json.Number
+		if err2 := json.Unmarshal(in.TelegramID, &tgNum); err2 == nil {
+			if i, e := tgNum.Int64(); e == nil {
+				tgStr = strconv.FormatInt(i, 10)
+			}
+		}
+	}
+	tgStr = strings.TrimSpace(tgStr)
+	if tgStr == "" || len(in.Items) == 0 {
+		jsonErr(w, http.StatusBadRequest, "telegram_id and items are required")
+		return
+	}
+
+	// Получим магазин пользователя
+	var store sql.NullString
+	_ = h.db.QueryRow(`SELECT selected_store FROM users WHERE user_id = ?`, in.TelegramID).Scan(&store)
+
+	// Транзакция создания заказа
+	tx, err := h.db.Begin()
+	if err != nil {
+		h.logger.Error("tx begin", zap.Error(err))
+		jsonErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var total int64
+	for _, it := range in.Items {
+		if it.Qty <= 0 || it.Price < 0 {
+			jsonErr(w, http.StatusBadRequest, "bad item qty/price")
+			return
+		}
+		total += int64(it.Qty * float64(it.Price))
+	}
+
+	res, err := tx.Exec(`
+		INSERT INTO orders (user_id, store_code, total_amount, status)
+		VALUES (?, ?, ?, 'new')
+	`, in.TelegramID, nullIfEmpty(store.String), total)
+	if err != nil {
+		h.logger.Error("insert order", zap.Error(err))
+		jsonErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	orderID, _ := res.LastInsertId()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO order_items (order_id, product_id, name, unit, qty, price, amount)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		h.logger.Error("prepare order items", zap.Error(err))
+		jsonErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	defer stmt.Close()
+
+	for _, it := range in.Items {
+		amount := int64(it.Qty * float64(it.Price))
+		if _, err := stmt.Exec(orderID, it.ProductID, it.Name, it.Unit, it.Qty, it.Price, amount); err != nil {
+			h.logger.Error("insert order item", zap.Error(err))
+			jsonErr(w, http.StatusInternalServerError, "db error")
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		h.logger.Error("tx commit", zap.Error(err))
+		jsonErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	// Уведомление админу
+	{
+		var b strings.Builder
+		fmt.Fprintf(&b, "🧾 Новый заказ\n\n")
+		fmt.Fprintf(&b, "👤 Telegram ID: %s\n", in.TelegramID)
+		if store.Valid && store.String != "" {
+			var name, addr sql.NullString
+			_ = h.db.QueryRow(`SELECT name, address FROM stores WHERE code = ?`, store.String).Scan(&name, &addr)
+			if name.Valid {
+				fmt.Fprintf(&b, "🏪 Магазин: %s\n", name.String)
+			}
+			if addr.Valid {
+				fmt.Fprintf(&b, "📍 Адрес: %s\n", addr.String)
+			}
+		}
+		fmt.Fprintf(&b, "🛒 Позиции:\n")
+		for _, it := range in.Items {
+			fmt.Fprintf(&b, "• %s — %.2f (%s) × %d ₸\n", it.Name, it.Qty, it.Unit, it.Price)
+		}
+		fmt.Fprintf(&b, "💰 Сумма: %d ₸", total)
+
+		h.notifyAdmin(b.String())
+	}
+
+	// Чек пользователю с кнопкой Kaspi Pay
+	if err := h.sendOrderReceiptToUser(tgStr, orderID, in.Items, total, store.String); err != nil {
+		h.logger.Warn("send receipt to user", zap.Error(err))
+		// Не фейлим заказ из-за проблем с отправкой сообщения
+	}
+
+	jsonOK(w, map[string]any{"status": "ok", "order_id": orderID, "total": total})
+}
+
+// Формирует и отправляет пользователю сообщение с позициями, суммой и кнопкой "Оплатить Kaspi".
+func (h *Handler) sendOrderReceiptToUser(telegramID string, orderID int64, items []orderItemIn, total int64, storeCode string) error {
+	if h.bot == nil {
+		return fmt.Errorf("bot is nil")
+	}
+
+	// 1) Преобразуем telegramID -> int64 ChatID
+	tgStr := strings.TrimSpace(telegramID)
+	if tgStr == "" {
+		return fmt.Errorf("empty telegram id")
+	}
+	tgid, err := strconv.ParseInt(tgStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("bad telegram id: %w", err)
+	}
+
+	// 2) Достанем информацию о точке (если есть)
+	var storeName, storeAddr string
+	if strings.TrimSpace(storeCode) != "" {
+		_ = h.db.QueryRow(
+			`SELECT COALESCE(name,''), COALESCE(address,'') FROM stores WHERE code = ?`,
+			storeCode,
+		).Scan(&storeName, &storeAddr)
+	}
+
+	// 3) Сформируем текст чека
+	var b strings.Builder
+	fmt.Fprintf(&b, "✅ Заказ №%d принят!\n\n", orderID)
+	if storeName != "" {
+		fmt.Fprintf(&b, "🏪 Точка: %s\n", storeName)
+	}
+	if storeAddr != "" {
+		fmt.Fprintf(&b, "📍 Адрес: %s\n", storeAddr)
+	}
+	b.WriteString("🛒 Позиции:\n")
+
+	var calcTotal int64
+	for _, it := range items {
+		// защита от мусора
+		if it.Qty <= 0 || it.Price < 0 {
+			continue
+		}
+		lineAmount := int64(it.Qty * float64(it.Price))
+		calcTotal += lineAmount
+
+		// Пример: • Картофель — 3.00 кг × 250 ₸ = 750 ₸
+		fmt.Fprintf(&b, "• %s — %.2f %s × %d ₸ = %d ₸\n",
+			it.Name, it.Qty, it.Unit, it.Price, lineAmount)
+	}
+
+	// если на сервере есть своя логика наценок/скидок — доверяем аргументу total
+	if calcTotal == 0 && total > 0 {
+		calcTotal = total
+	}
+
+	fmt.Fprintf(&b, "\n💰 Итого к оплате: %d ₸\n", calcTotal)
+
+	// 4) Ссылка Kaspi Pay
+	kaspiURL := h.cfg.KaspiPayURL
+	if strings.TrimSpace(kaspiURL) == "" {
+		kaspiURL = "https://pay.kaspi.kz/pay/e96vsxbs"
+	}
+
+	kb := &models.InlineKeyboardMarkup{
+		InlineKeyboard: [][]models.InlineKeyboardButton{
+			{
+				{Text: "💳 Оплатить в Kaspi", URL: kaspiURL},
+			},
+		},
+	}
+
+	// 5) Отправка сообщения пользователю
+	_, err = h.bot.SendMessage(h.ctx, &bot.SendMessageParams{
+		ChatID:      tgid,
+		Text:        b.String(),
+		ReplyMarkup: kb,
+		// ParseMode:   models.ParseModeMarkdown, // если захотите оформление
+	})
+	return err
+}
+
+// ========================= ADMIN PRODUCTS =========================
 func (h *Handler) handleAdminListProducts(w http.ResponseWriter, r *http.Request) {
 	if !h.isAdminRequest(r) {
 		jsonErr(w, http.StatusForbidden, "forbidden")
@@ -862,108 +1056,11 @@ type orderItemIn struct {
 }
 
 type createOrderIn struct {
-	TelegramID string        `json:"telegram_id"`
-	Items      []orderItemIn `json:"items"`
-}
-
-func (h *Handler) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
-	var in createOrderIn
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		jsonErr(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	in.TelegramID = strings.TrimSpace(in.TelegramID)
-	if in.TelegramID == "" || len(in.Items) == 0 {
-		jsonErr(w, http.StatusBadRequest, "telegram_id and items are required")
-		return
-	}
-
-	// Получим магазин пользователя
-	var store sql.NullString
-	_ = h.db.QueryRow(`SELECT selected_store FROM users WHERE user_id = ?`, in.TelegramID).Scan(&store)
-
-	// Транзакция создания заказа
-	tx, err := h.db.Begin()
-	if err != nil {
-		h.logger.Error("tx begin", zap.Error(err))
-		jsonErr(w, http.StatusInternalServerError, "db error")
-		return
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	var total int64
-	for _, it := range in.Items {
-		if it.Qty <= 0 || it.Price < 0 {
-			jsonErr(w, http.StatusBadRequest, "bad item qty/price")
-			return
-		}
-		total += int64(it.Qty * float64(it.Price))
-	}
-
-	res, err := tx.Exec(`
-		INSERT INTO orders (user_id, store_code, total_amount, status)
-		VALUES (?, ?, ?, 'new')
-	`, in.TelegramID, nullIfEmpty(store.String), total)
-	if err != nil {
-		h.logger.Error("insert order", zap.Error(err))
-		jsonErr(w, http.StatusInternalServerError, "db error")
-		return
-	}
-	orderID, _ := res.LastInsertId()
-
-	stmt, err := tx.Prepare(`
-		INSERT INTO order_items (order_id, product_id, name, unit, qty, price, amount)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		h.logger.Error("prepare order items", zap.Error(err))
-		jsonErr(w, http.StatusInternalServerError, "db error")
-		return
-	}
-	defer stmt.Close()
-
-	for _, it := range in.Items {
-		amount := int64(it.Qty * float64(it.Price))
-		if _, err := stmt.Exec(orderID, it.ProductID, it.Name, it.Unit, it.Qty, it.Price, amount); err != nil {
-			h.logger.Error("insert order item", zap.Error(err))
-			jsonErr(w, http.StatusInternalServerError, "db error")
-			return
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		h.logger.Error("tx commit", zap.Error(err))
-		jsonErr(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	// Уведомление админу
-	var b strings.Builder
-	fmt.Fprintf(&b, "🧾 Новый заказ\n\n")
-	fmt.Fprintf(&b, "👤 Telegram ID: %s\n", in.TelegramID)
-	if store.Valid && store.String != "" {
-		var name, addr sql.NullString
-		_ = h.db.QueryRow(`SELECT name, address FROM stores WHERE code = ?`, store.String).Scan(&name, &addr)
-		if name.Valid {
-			fmt.Fprintf(&b, "🏪 Магазин: %s\n", name.String)
-		}
-		if addr.Valid {
-			fmt.Fprintf(&b, "📍 Адрес: %s\n", addr.String)
-		}
-	}
-	fmt.Fprintf(&b, "🛒 Позиции:\n")
-	for _, it := range in.Items {
-		fmt.Fprintf(&b, "• %s — %.2f (%s) × %d ₸\n", it.Name, it.Qty, it.Unit, it.Price)
-	}
-	fmt.Fprintf(&b, "💰 Сумма: %d ₸", total)
-
-	h.notifyAdmin(b.String())
-
-	jsonOK(w, map[string]any{"status": "ok", "order_id": orderID, "total": total})
+	TelegramID json.RawMessage `json:"telegram_id"`
+	Items      []orderItemIn   `json:"items"`
 }
 
 // ========================= HELPERS =========================
-
 func (h *Handler) notifyAdmin(text string) {
 	if h.bot == nil || h.cfg == nil || h.cfg.AdminID == 0 {
 		return

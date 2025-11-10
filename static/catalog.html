@@ -9,6 +9,7 @@
     :root{
       --bg:#f6f9f4; --ink:#0b1f0b; --muted:#6b806b; --brand:#19a461; --brand-2:#88c057;
       --danger:#e53935; --card:#ffffff; --border:#e7efe2; --shadow:0 10px 30px rgba(25,164,97,.15);
+      --tg-viewport-stable-height:100vh; /* fallback */
     }
     *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     html,body{height:100%;background:var(--bg);color:var(--ink)}
@@ -96,9 +97,10 @@
   </div>
 
 <script>
-  try{ Telegram.WebApp.ready(); Telegram.WebApp.expand(); }catch(_){}
+  // Telegram init
+  try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch(_) {}
   let telegramId = null;
-  try{ telegramId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(_){}
+  try { telegramId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; } catch(_) {}
 
   const listEl = document.getElementById('list');
   const qEl    = document.getElementById('q');
@@ -115,7 +117,7 @@
   let cart = {};
   let currentCat = 'all';
 
-  // Справочник точек: code -> {name,address}
+  // code -> {name,address}
   let storesByCode = Object.create(null);
 
   function toast(t){ if (Telegram?.WebApp?.showAlert) Telegram.WebApp.showAlert(t); else alert(t); }
@@ -177,7 +179,10 @@
     render();
   }
 
-  function priceFor(p){ const base = Number(p.price)||0; return isSubscribed ? base : Math.round(base*1.5); }
+  function priceFor(p){
+    const base = Number(p.price)||0;
+    return isSubscribed ? base : Math.round(base*1.5);
+  }
 
   function filtered(){
     let arr = products;
@@ -211,10 +216,9 @@
       const src = photoURL(p);
       const pic = src
         ? `<img src="${escapeAttr(src)}" alt="${escapeAttr(p.name||'')}" loading="lazy"
-               onerror="this.onerror=null; this.remove(); this.closest('.pic').textContent='${(p.emoji||'🧺').replace(/'/g,'&#39;')}';">`
+               onerror="this.onerror=null; this.remove(); this.closest('.pic').textContent=${JSON.stringify(p.emoji || '🧺')};">`
         : (p.emoji || '🧺');
 
-      // добавим data-store-code для клика
       const storeCode = (p.store_code||'').trim();
 
       return `
@@ -266,7 +270,6 @@
       }
       const name = encodeURIComponent(meta.name||'Точка');
       const addr = encodeURIComponent(meta.address||'');
-      // Можно дополнить координатами, если вы их добавите в БД и API
       location.href = `/map-view?name=${name}&addr=${addr}`;
     }
   });
@@ -290,16 +293,45 @@
     b.classList.add('active'); currentCat = b.getAttribute('data-cat'); render();
   });
 
+  // Оформление заказа: POST /api/orders/create -> закрыть мини-апп
   payBtn.addEventListener('click', async ()=>{
     const items = Object.entries(cart).map(([id,qty])=>{
       const p = products.find(x=>String(x.id)===String(id));
-      return p ? {product_id:id, name:p.name, qty, unit:p.unit, price:priceFor(p)} : null;
+      return p ? {product_id:Number(id), name:p.name, qty:Number(qty), unit:p.unit, price:priceFor(p)} : null;
     }).filter(Boolean);
     const total = items.reduce((s,x)=>s + x.price*x.qty, 0);
-    const ok = confirm(`Подтвердить заказ на сумму ${total} ₸?`); if(!ok) return;
-    await fetch('/api/orders/create',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({telegram_id:telegramId, items}) });
-    if(Telegram?.WebApp?.showAlert) Telegram.WebApp.showAlert('Заказ отправлен администратору. Ожидайте счёт Kaspi.');
-    cart = {}; render();
+
+    const ok = confirm(`Подтвердить заказ на сумму ${total} ₸?`);
+    if(!ok) return;
+
+    try{
+      payBtn.disabled = true;
+      payBtn.textContent = '⏳ Оформляем...';
+
+     const res = await fetch('/api/orders/create', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ telegram_id: String(telegramId || '') , items })
+    });
+
+      const js = await res.json();
+
+      if(!res.ok){
+        throw new Error(js?.error || 'Ошибка оформления заказа');
+      }
+
+      if (Telegram?.WebApp?.close) {
+        Telegram.WebApp.close();
+      } else {
+        alert('Заказ оформлен! Проверьте сообщение в Telegram.');
+        location.href = '/';
+      }
+    }catch(e){
+      console.error(e);
+      alert(e.message || 'Ошибка');
+      payBtn.disabled = false;
+      recalc();
+    }
   });
 
   (async function init(){
