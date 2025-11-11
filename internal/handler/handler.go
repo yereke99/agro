@@ -23,6 +23,20 @@ import (
 	"go.uber.org/zap"
 )
 
+type deliveryIn struct {
+	Type    string  `json:"type"` // "delivery" или "pickup"
+	Address string  `json:"address"`
+	Phone   string  `json:"phone"`
+	Lat     float64 `json:"lat"`
+	Lng     float64 `json:"lng"`
+}
+
+type confirmOrderIn struct {
+	TelegramID json.RawMessage `json:"telegram_id"`
+	Items      []orderItemIn   `json:"items"`
+	Delivery   deliveryIn      `json:"delivery"`
+}
+
 type Handler struct {
 	logger      *zap.Logger
 	cfg         *config.Config
@@ -105,6 +119,16 @@ func (h *Handler) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func (h *Handler) handleDeliveryPrice(w http.ResponseWriter, r *http.Request) {
+	// В будущем можно учитывать расстояние, время и т.д.
+	// Сейчас — плоская ставка.
+	price := int64(1000) // 1000 ₸
+	jsonOK(w, map[string]any{
+		"price":    price,
+		"currency": "KZT",
+	})
+}
+
 func (h *Handler) StartWebServer(ctx context.Context, b *bot.Bot) {
 	h.SetBot(b)
 
@@ -117,6 +141,10 @@ func (h *Handler) StartWebServer(ctx context.Context, b *bot.Bot) {
 	mux.HandleFunc("/catalog", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./static/catalog.html")
 	})
+	mux.HandleFunc("/order-confirm", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./static/order-confirm.html")
+	})
+
 	mux.HandleFunc("/admin-add", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./static/admin-add.html")
 	})
@@ -130,6 +158,7 @@ func (h *Handler) StartWebServer(ctx context.Context, b *bot.Bot) {
 		http.ServeFile(w, r, "./static/admin-edit-product.html")
 	})
 
+	// ❗️Было: "./static/maFp-view.html" (опечатка)
 	mux.HandleFunc("/map-view", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./static/map-view.html")
 	})
@@ -143,39 +172,42 @@ func (h *Handler) StartWebServer(ctx context.Context, b *bot.Bot) {
 	})
 
 	// STORES
-	mux.HandleFunc("/api/stores", h.handleListStores)         // GET list
-	mux.HandleFunc("/api/admin/stores/add", h.handleAddStore) // POST {code,name,address}
+	mux.HandleFunc("/api/stores", h.handleListStores)
+	mux.HandleFunc("/api/admin/stores/add", h.handleAddStore)
 
 	// USER / SHOP API
-	mux.HandleFunc("/api/user/subscription-status", h.handleGetSubStatus) // now returns store info
+	mux.HandleFunc("/api/user/subscription-status", h.handleGetSubStatus)
 	mux.HandleFunc("/api/subscribe/request-invoice", h.handleRequestInvoice)
 	mux.HandleFunc("/api/user/set-store", h.handleSetStore)
 	mux.HandleFunc("/api/products", h.handleGetProducts)
+
+	// ❗️Оба эндпоинта заказов:
 	mux.HandleFunc("/api/orders/create", h.handleCreateOrder)
+	mux.HandleFunc("/api/orders/confirm", h.handleConfirmOrder)
 
 	// ADMIN: products
 	mux.HandleFunc("/api/admin/products", h.handleAdminListProducts)
 	mux.HandleFunc("/api/admin/products/get", h.handleAdminGetProduct)
-	mux.HandleFunc("/api/admin/products/add", h.handleAdminAddProduct)       // multipart (+ store_code)
-	mux.HandleFunc("/api/admin/products/update", h.handleAdminUpdateProduct) // multipart (+ store_code)
+	mux.HandleFunc("/api/admin/products/add", h.handleAdminAddProduct)
+	mux.HandleFunc("/api/admin/products/update", h.handleAdminUpdateProduct)
 	mux.HandleFunc("/api/admin/products/delete", h.handleAdminDeleteProduct)
+
+	// Delivery price
+	mux.HandleFunc("/api/delivery/price", h.handleDeliveryPrice)
 
 	// uploads static
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
 
 	handler := h.corsMiddleware(mux)
-
 	addr := fmt.Sprintf(":%s", h.cfg.Port)
 	h.logger.Info("Web server listening", zap.String("address", addr))
 
 	server := &http.Server{Addr: addr, Handler: handler}
-
 	go func() {
 		<-ctx.Done()
 		h.logger.Info("Shutting down web server...")
 		_ = server.Shutdown(context.Background())
 	}()
-
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		h.logger.Error("Web server error", zap.Error(err))
 	}
@@ -351,6 +383,157 @@ func nullIfZero(v float64) any {
 }
 
 // ========================= API HANDLERS =========================
+
+func (h *Handler) handleConfirmOrder(w http.ResponseWriter, r *http.Request) {
+	var in confirmOrderIn
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	var tgStr string
+	if err := json.Unmarshal(in.TelegramID, &tgStr); err != nil {
+		var tgNum json.Number
+		if err2 := json.Unmarshal(in.TelegramID, &tgNum); err2 == nil {
+			if i, e := tgNum.Int64(); e == nil {
+				tgStr = strconv.FormatInt(i, 10)
+			}
+		}
+	}
+	tgStr = strings.TrimSpace(tgStr)
+	if tgStr == "" || len(in.Items) == 0 {
+		jsonErr(w, http.StatusBadRequest, "telegram_id and items are required")
+		return
+	}
+
+	// Проверим выбранный магазин (как и в handleCreateOrder)
+	var store sql.NullString
+	_ = h.db.QueryRow(`SELECT selected_store FROM users WHERE user_id = ?`, tgStr).Scan(&store)
+
+	// Базовая сумма
+	var goodsTotal int64
+	for _, it := range in.Items {
+		if it.Qty <= 0 || it.Price < 0 {
+			jsonErr(w, http.StatusBadRequest, "bad item qty/price")
+			return
+		}
+		goodsTotal += int64(it.Qty * float64(it.Price))
+	}
+
+	// Цена доставки (если выбрана доставка)
+	var deliveryPrice int64
+	if strings.EqualFold(in.Delivery.Type, "delivery") {
+		// сейчас — плоская ставка 1000 ₸ (как в /api/delivery/price)
+		deliveryPrice = 1000
+		// добавим как строку заказа «Доставка»
+		in.Items = append(in.Items, orderItemIn{
+			ProductID: 0,
+			Name:      "Доставка",
+			Qty:       1,
+			Unit:      "услуга",
+			Price:     deliveryPrice,
+		})
+	}
+
+	total := goodsTotal + deliveryPrice
+
+	// Транзакция
+	tx, err := h.db.Begin()
+	if err != nil {
+		h.logger.Error("tx begin", zap.Error(err))
+		jsonErr(w, 500, "db error")
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.Exec(`
+		INSERT INTO orders (user_id, store_code, total_amount, status)
+		VALUES (?, ?, ?, 'new')
+	`, tgStr, nullIfEmpty(store.String), total)
+	if err != nil {
+		h.logger.Error("insert order", zap.Error(err))
+		jsonErr(w, 500, "db error")
+		return
+	}
+	orderID, _ := res.LastInsertId()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO order_items (order_id, product_id, name, unit, qty, price, amount)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		h.logger.Error("prepare order items", zap.Error(err))
+		jsonErr(w, 500, "db error")
+		return
+	}
+	defer stmt.Close()
+
+	for _, it := range in.Items {
+		amount := int64(it.Qty * float64(it.Price))
+		if _, err := stmt.Exec(orderID, it.ProductID, it.Name, it.Unit, it.Qty, it.Price, amount); err != nil {
+			h.logger.Error("insert order item", zap.Error(err))
+			jsonErr(w, 500, "db error")
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		h.logger.Error("tx commit", zap.Error(err))
+		jsonErr(w, 500, "db error")
+		return
+	}
+
+	// ⚠️ Уведомление админу с деталями доставки
+	{
+		var b strings.Builder
+		fmt.Fprintf(&b, "🧾 Новый заказ (подтверждён)\n\n")
+		fmt.Fprintf(&b, "👤 Telegram ID: %s\n", tgStr)
+
+		if store.Valid && store.String != "" {
+			var name, addr sql.NullString
+			_ = h.db.QueryRow(`SELECT name, address FROM stores WHERE code = ?`, store.String).Scan(&name, &addr)
+			if name.Valid {
+				fmt.Fprintf(&b, "🏪 Точка: %s\n", name.String)
+			}
+			if addr.Valid {
+				fmt.Fprintf(&b, "📍 Адрес точки: %s\n", addr.String)
+			}
+		}
+
+		if strings.EqualFold(in.Delivery.Type, "delivery") {
+			fmt.Fprintf(&b, "🚚 Доставка на дом\n")
+			if strings.TrimSpace(in.Delivery.Address) != "" {
+				fmt.Fprintf(&b, "📬 Адрес клиента: %s\n", in.Delivery.Address)
+			}
+		} else {
+			fmt.Fprintf(&b, "🏃 Самовывоз\n")
+		}
+		if strings.TrimSpace(in.Delivery.Phone) != "" {
+			fmt.Fprintf(&b, "📞 Телефон клиента: %s\n", in.Delivery.Phone)
+		}
+
+		fmt.Fprintf(&b, "\n🛒 Позиции:\n")
+		for _, it := range in.Items {
+			fmt.Fprintf(&b, "• %s — %.2f (%s) × %d ₸\n", it.Name, it.Qty, it.Unit, it.Price)
+		}
+		fmt.Fprintf(&b, "💰 Сумма (включая доставку): %d ₸", total)
+
+		h.notifyAdmin(b.String())
+	}
+
+	// Чек пользователю (внутри — кнопка Kaspi)
+	if err := h.sendOrderReceiptToUser(tgStr, orderID, in.Items, total, store.String); err != nil {
+		h.logger.Warn("send receipt to user", zap.Error(err))
+	}
+
+	jsonOK(w, map[string]any{
+		"status":         "ok",
+		"order_id":       orderID,
+		"goods_total":    goodsTotal,
+		"delivery_price": deliveryPrice,
+		"total":          total,
+	})
+}
 
 func (h *Handler) handleGetSubStatus(w http.ResponseWriter, r *http.Request) {
 	telegramID := firstNonEmpty(

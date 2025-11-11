@@ -32,13 +32,15 @@ func NewConfig() (*Config, error) {
 		dbPath = "./agro.db"
 	}
 
+	miniAppUrl := "https://ab81d2004c29.ngrok-free.app"
+
 	return &Config{
 		Token:           token,
 		Port:            port,
 		DBPath:          dbPath,
 		ChannelName:     "@jaiAngmeAitamyz",
-		MiniAppUrl:      "https://93327de8175c.ngrok-free.app",
-		MiniAppUrlAdmin: "https://93327de8175c.ngrok-free.app/admin-show-catalog",
+		MiniAppUrl:      miniAppUrl,
+		MiniAppUrlAdmin: miniAppUrl + "/admin-show-catalog",
 		YandexAPIKey:    "8a3e4da0-9ef2-4176-9203-e7014c1dba6f",
 		KaspiPayURL:     "https://pay.kaspi.kz/pay/e96vsxbs",
 		AdminID:         800703982,

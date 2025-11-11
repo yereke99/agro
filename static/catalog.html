@@ -295,44 +295,19 @@
 
   // Оформление заказа: POST /api/orders/create -> закрыть мини-апп
   payBtn.addEventListener('click', async ()=>{
-    const items = Object.entries(cart).map(([id,qty])=>{
-      const p = products.find(x=>String(x.id)===String(id));
-      return p ? {product_id:Number(id), name:p.name, qty:Number(qty), unit:p.unit, price:priceFor(p)} : null;
-    }).filter(Boolean);
-    const total = items.reduce((s,x)=>s + x.price*x.qty, 0);
+  const items = Object.entries(cart).map(([id,qty])=>{
+    const p = products.find(x=>String(x.id)===String(id));
+    return p ? {product_id:Number(id), name:p.name, qty:Number(qty), unit:p.unit, price:priceFor(p), store_code: p.store_code||""} : null;
+  }).filter(Boolean);
+  const total = items.reduce((s,x)=>s + x.price*x.qty, 0);
 
-    const ok = confirm(`Подтвердить заказ на сумму ${total} ₸?`);
-    if(!ok) return;
+  if(!items.length){ return; }
 
-    try{
-      payBtn.disabled = true;
-      payBtn.textContent = '⏳ Оформляем...';
+  // Сохраняем корзину и двигаемся на confirm-страницу
+  sessionStorage.setItem("agro_cart", JSON.stringify({items, total}));
+  location.href = "/order-confirm";
+});
 
-     const res = await fetch('/api/orders/create', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ telegram_id: String(telegramId || '') , items })
-    });
-
-      const js = await res.json();
-
-      if(!res.ok){
-        throw new Error(js?.error || 'Ошибка оформления заказа');
-      }
-
-      if (Telegram?.WebApp?.close) {
-        Telegram.WebApp.close();
-      } else {
-        alert('Заказ оформлен! Проверьте сообщение в Telegram.');
-        location.href = '/';
-      }
-    }catch(e){
-      console.error(e);
-      alert(e.message || 'Ошибка');
-      payBtn.disabled = false;
-      recalc();
-    }
-  });
 
   (async function init(){
     await Promise.all([loadStores(), loadSub()]);
