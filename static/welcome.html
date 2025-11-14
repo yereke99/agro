@@ -155,6 +155,7 @@
   }
   loadStatus();
 
+  // ⬇⬇⬇ изменённый обработчик подписки
   document.getElementById('subscribeBtn').addEventListener('click', async ()=>{
     if(!telegramId){
       alert('Ошибка: не удалось получить ваш Telegram ID.\nОткройте мини-приложение из бота ещё раз.');
@@ -171,22 +172,37 @@
     const phone = prompt('Введите номер телефона (Kaspi, формата +7 ...):');
     if(!phone) return;
 
-    await fetch('/api/subscribe/request-invoice', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({telegram_id: String(telegramId), phone})
-    });
+    try{
+      await fetch('/api/subscribe/request-invoice', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({telegram_id: String(telegramId), phone})
+      });
+    }catch(e){
+      if (Telegram?.WebApp?.showAlert){
+        Telegram.WebApp.showAlert('Ошибка при отправке заявки на подписку. Попробуйте позже.');
+      } else {
+        alert('Ошибка при отправке заявки на подписку. Попробуйте позже.');
+      }
+      return;
+    }
 
     if (Telegram?.WebApp?.showAlert){
       Telegram.WebApp.showAlert(
         'Ссылка на оплату подписки отправлена вам в Telegram.\n' +
-        'После оплаты, пожалуйста, пришлите чек боту.'
+        'После оплаты, пожалуйста, пришлите чек боту.',
+        function () {
+          // закрываем мини-приложение после того, как юзер нажал OK
+          try{ Telegram.WebApp.close(); }catch(e){}
+        }
       );
     } else {
       alert(
         'Ссылка на оплату подписки отправлена вам в Telegram.\n' +
         'После оплаты, пожалуйста, пришлите чек боту.'
       );
+      // запасной вариант вне WebApp (может не сработать в браузере)
+      try{ window.close(); }catch(e){}
     }
   });
 
