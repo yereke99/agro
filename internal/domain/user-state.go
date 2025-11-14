@@ -1,3 +1,4 @@
+// internal/domain/user-state.go
 package domain
 
 import "time"

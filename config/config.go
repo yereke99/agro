@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -14,25 +15,42 @@ type Config struct {
 	AdminID         int64
 	YandexAPIKey    string
 	KaspiPayURL     string
+
+	// 🔹 Новые поля для оплаты переводом
+	KaspiCardNumber string
+	KaspiCardHolder string
+}
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
 func NewConfig() (*Config, error) {
-	token := os.Getenv("TELEGRAM_BOT_TOKEN")
-	if token == "" {
-		token = "8288790284:AAHkDouevMu_7ddQk9CleHDrOdRqFalBV-M"
-	}
+	token := envOrDefault("TELEGRAM_BOT_TOKEN",
+		"8288790284:AAHkDouevMu_7ddQk9CleHDrOdRqFalBV-M")
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	port := envOrDefault("PORT", "8080")
+	dbPath := envOrDefault("DB_PATH", "./agro.db")
 
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "./agro.db"
-	}
+	miniAppUrl := envOrDefault("MINI_APP_URL",
+		"https://d5dec5ae7f52.ngrok-free.app")
 
-	miniAppUrl := "https://ab81d2004c29.ngrok-free.app"
+	// Admin ID — можно переопределить через ENV ADMIN_ID
+	adminIDStr := envOrDefault("ADMIN_ID", "800703982")
+	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
+
+	// Kaspi Pay по ссылке (инвойс)
+	kaspiPayURL := envOrDefault("KASPI_PAY_URL",
+		"https://pay.kaspi.kz/pay/e96vsxbs")
+
+	// 🔹 Реквизиты для перевода на Kaspi Gold (по умолчанию можно свои поставить)
+	kaspiCardNumber := envOrDefault("KASPI_CARD_NUMBER",
+		"4400 4300 0000 1234")
+	kaspiCardHolder := envOrDefault("KASPI_CARD_HOLDER",
+		"AGRO CLUB")
 
 	return &Config{
 		Token:           token,
@@ -42,7 +60,10 @@ func NewConfig() (*Config, error) {
 		MiniAppUrl:      miniAppUrl,
 		MiniAppUrlAdmin: miniAppUrl + "/admin-show-catalog",
 		YandexAPIKey:    "8a3e4da0-9ef2-4176-9203-e7014c1dba6f",
-		KaspiPayURL:     "https://pay.kaspi.kz/pay/e96vsxbs",
-		AdminID:         800703982,
+		KaspiPayURL:     kaspiPayURL,
+		AdminID:         adminID,
+
+		KaspiCardNumber: kaspiCardNumber,
+		KaspiCardHolder: kaspiCardHolder,
 	}, nil
 }

@@ -17,12 +17,10 @@ import (
 )
 
 const (
-	stateStart      string = "start"
-	stateCount      string = "count"
-	statePaid       string = "paid"
-	stateContact    string = "contact"
-	stateAdminPanel string = "admin_panel"
-	stateBroadcast  string = "broadcast"
+	stateStart          string = "start"
+	stateWaitingPayment string = "waiting_payment"
+	stateAdminPanel     string = "admin_panel"
+	stateBroadcast      string = "broadcast"
 )
 
 func (h *Handler) AdminHandler(ctx context.Context, b *bot.Bot, update *models.Update) {

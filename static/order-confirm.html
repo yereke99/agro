@@ -12,30 +12,26 @@
     }
     *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     html,body{height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,Arial,sans-serif}
-    .header{position:sticky; top:0; z-index:10; background:linear-gradient(180deg,#ffffff,#f3f8ef);
-      border-bottom:1px solid var(--border); padding:10px 16px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px;
-      backdrop-filter:saturate(140%) blur(8px);}
+    .header{position:sticky; top:0; z-index:10; background:linear-gradient(180deg,#ffffff,#f3f8ef); border-bottom:1px solid var(--border); padding:10px 16px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; backdrop-filter:saturate(140%) blur(8px);}
     .title{font-weight:900}
     .sub{font-size:12px;color:var(--muted)}
     .container{padding:12px 16px 120px}
-
     .card{background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);padding:12px;margin-bottom:12px}
     .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
     .row:last-child{border-bottom:0}
     .muted{font-size:12px;color:var(--muted)}
     .total{font-weight:900;font-size:16px}
     .radio{display:flex;gap:8px;flex-wrap:wrap}
-    .radio label{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#fff;cursor:pointer}
+    .radio label{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#fff;cursor:pointer;font-size:14px}
     .radio input{accent-color:var(--brand)}
     .input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:#fff;outline:none}
-
     .mapHdr{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
     .mapWrap{height:260px;border-radius:12px;border:1px solid var(--border);overflow:hidden;position:relative;transition:height .2s ease; touch-action:none;}
     .mapWrap.expanded{height:70vh}
     .mapTools{position:absolute;left:8px;top:8px;right:8px;display:flex;gap:8px;z-index:2}
     .tool{flex:1;display:flex;gap:6px;background:rgba(255,255,255,.95);border:1px solid var(--border);border-radius:10px;padding:8px}
     .tool input{flex:1;border:0;outline:none;background:transparent}
-    .btnSm{padding:8px 10px;border:1px solid var(--border);background:#fff;border-radius:10px;cursor:pointer}
+    .btnSm{padding:8px 10px;border:1px solid var(--border);background:#fff;border-radius:10px;cursor:pointer;font-size:13px}
     .suggest{position:absolute;left:8px;right:8px;top:48px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);z-index:3;max-height:220px;overflow:auto;display:none}
     .sugItem{padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer}
     .sugItem:last-child{border-bottom:0}
@@ -44,7 +40,6 @@
     .item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
     .item:last-child{border-bottom:0}
     .qty{font-size:12px;color:var(--muted)}
-
     .floating{position:fixed;left:16px;right:16px;bottom:calc(16px + var(--tg-safe-area-inset-bottom,0px));display:flex;gap:8px;z-index:50}
     .btn{flex:1;padding:14px;border-radius:14px;border:0;background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;font-weight:900;cursor:pointer}
     .btn:disabled{opacity:.6;cursor:not-allowed}
@@ -55,194 +50,199 @@
   <script src="https://api-maps.yandex.ru/v3/?apikey=8a3e4da0-9ef2-4176-9203-e7014c1dba6f&lang=ru_RU"></script>
 </head>
 <body>
-  <header class="header">
-    <div>
-      <div class="title">Подтверждение</div>
-      <div class="sub">Проверяем заказ и адрес</div>
+<header class="header">
+  <div>
+    <div class="title">Подтверждение</div>
+    <div class="sub">Проверяем заказ и адрес</div>
+  </div>
+</header>
+
+<div class="container">
+  <!-- Корзина -->
+  <div class="card">
+    <div class="muted" style="margin-bottom:6px">Корзина</div>
+    <div id="cartList" class="list"></div>
+    <div class="row">
+      <div class="muted">Товары</div>
+      <div id="goodsTotal" class="total">0 ₸</div>
     </div>
-  </header>
-
-  <div class="container">
-    <div class="card">
-      <div class="muted" style="margin-bottom:6px">Корзина</div>
-      <div id="cartList" class="list"></div>
-      <div class="row">
-        <div class="muted">Товары</div>
-        <div id="goodsTotal" class="total">0 ₸</div>
-      </div>
-      <div class="row">
-        <div class="muted">Доставка</div>
-        <div id="deliveryPrice" class="total">0 ₸</div>
-      </div>
-      <div class="row">
-        <div>Итого к оплате</div>
-        <div id="grandTotal" class="total">0 ₸</div>
-      </div>
+    <div class="row">
+      <div class="muted">Доставка</div>
+      <div id="deliveryPrice" class="total">0 ₸</div>
     </div>
-
-    <div class="card">
-      <div class="muted" style="margin-bottom:6px">Способ получения</div>
-      <div class="radio">
-        <label><input type="radio" name="dtype" value="delivery" checked/> Доставка домой</label>
-        <label><input type="radio" name="dtype" value="pickup"/> Самовывоз</label>
-      </div>
-      <div id="pickupHint" class="hint" style="display:none">Самовывоз с выбранной ранее точки.</div>
+    <div class="row">
+      <div>Итого к оплате</div>
+      <div id="grandTotal" class="total">0 ₸</div>
     </div>
+  </div>
 
-    <div id="deliveryBlock" class="card">
-      <div class="mapHdr">
-        <div style="font-weight:700">Адрес доставки</div>
-        <button id="toggleMap" class="btnSm">Развернуть карту</button>
-      </div>
-      <input id="address" class="input" placeholder="Улица, дом, подъезд..."/>
-      <div class="hint">Можно отредактировать вручную. Пин на карте можно переставить кликом или перетаскиванием. Увеличивайте/уменьшайте карту жестами (pinch).</div>
+  <!-- Способ получения -->
+  <div class="card">
+    <div class="muted" style="margin-bottom:6px">Способ получения</div>
+    <div class="radio">
+      <label><input type="radio" name="dtype" value="delivery" checked/> Доставка домой</label>
+      <label><input type="radio" name="dtype" value="pickup"/> Самовывоз</label>
+    </div>
+    <div id="pickupHint" class="hint" style="display:none">Самовывоз с выбранной ранее точки.</div>
+  </div>
 
-      <div class="mapWrap" id="mapWrap">
-        <div class="mapTools">
-          <div class="tool" style="flex:2">
-            <input id="search" type="search" placeholder="Найти адрес: Абая 100..." autocomplete="off">
-            <button id="searchBtn" class="btnSm" title="Поиск">🔍</button>
-            <button id="locBtn" class="btnSm" title="Мое местоположение">📍</button>
-          </div>
+  <!-- НОВОЕ: Способ оплаты -->
+  <div class="card">
+    <div class="muted" style="margin-bottom:6px">Способ оплаты</div>
+    <div class="radio">
+      <label><input type="radio" name="pay" value="kaspi_link" checked/> Kaspi Pay (по ссылке)</label>
+      <label><input type="radio" name="pay" value="kaspi_transfer"/> Перевод на Kaspi Gold</label>
+      <label><input type="radio" name="pay" value="cash"/> Наличными</label>
+    </div>
+    <div class="hint">
+      Выберите, как будете оплачивать заказ: по ссылке Kaspi, переводом на карту Kaspi Gold или наличными.
+    </div>
+  </div>
+
+  <!-- Адрес доставки -->
+  <div id="deliveryBlock" class="card">
+    <div class="mapHdr">
+      <div style="font-weight:700">Адрес доставки</div>
+      <button id="toggleMap" class="btnSm">Развернуть карту</button>
+    </div>
+    <input id="address" class="input" placeholder="Улица, дом, подъезд..."/>
+    <div class="hint">
+      Можно отредактировать вручную. Пин на карте можно переставить кликом или перетаскиванием. Увеличивайте/уменьшайте карту жестами (pinch).
+    </div>
+    <div class="mapWrap" id="mapWrap">
+      <div class="mapTools">
+        <div class="tool" style="flex:2">
+          <input id="search" type="search" placeholder="Найти адрес: Абая 100..." autocomplete="off">
+          <button id="searchBtn" class="btnSm" title="Поиск">🔍</button>
+          <button id="locBtn" class="btnSm" title="Мое местоположение">📍</button>
         </div>
-        <div id="suggest" class="suggest"></div>
-        <div id="map" style="width:100%;height:100%"></div>
       </div>
-    </div>
-
-    <div class="card">
-      <div style="margin-bottom:8px">Контактный номер</div>
-      <input id="phone" class="input" placeholder="+7 7xx xxx xx xx"
-             type="tel" inputmode="numeric" autocomplete="tel" pattern="[0-9+ ]*">
-      <div class="hint">Мы отправим чек в Telegram и свяжемся по телефону при необходимости.</div>
+      <div id="suggest" class="suggest"></div>
+      <div id="map" style="width:100%;height:100%"></div>
     </div>
   </div>
 
-  <div class="floating">
-    <button id="submitBtn" class="btn">Подтвердить заказ</button>
+  <!-- Телефон -->
+  <div class="card">
+    <div style="margin-bottom:8px">Контактный номер</div>
+    <input id="phone" class="input" placeholder="+7 7xx xxx xx xx"
+           type="tel" inputmode="numeric" autocomplete="tel" pattern="[0-9+ ]*">
+    <div class="hint">Мы отправим чек в Telegram и свяжемся по телефону при необходимости.</div>
   </div>
+</div>
+
+<div class="floating">
+  <button id="submitBtn" class="btn">Подтвердить заказ</button>
+</div>
 
 <script>
-const YANDEX_API_KEY = '8a3e4da0-9ef2-4176-9203-e7014c1dba6f';
+  const YANDEX_API_KEY = '8a3e4da0-9ef2-4176-9203-e7014c1dba6f';
 
-let telegramId = null;
-try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); telegramId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; } catch(_){}
+  let telegramId = null;
+  try {
+    Telegram.WebApp.ready();
+    Telegram.WebApp.expand();
+    telegramId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null;
+  } catch(_) {}
 
-let cart = JSON.parse(sessionStorage.getItem("agro_cart")||"{}");
-let items = Array.isArray(cart.items)? cart.items : [];
-let goodsTotal = Number(cart.total||0);
-let deliveryPrice = 0;
-let deliveryType = "delivery";
+  let cart = JSON.parse(sessionStorage.getItem("agro_cart")||"{}");
+  let items = Array.isArray(cart.items)? cart.items : [];
+  let goodsTotal = Number(cart.total||0);
+  let deliveryPrice = 0;
+  let deliveryType = "delivery";
+  let paymentMethod = "kaspi_link";   // НОВОЕ
 
-const cartListEl = document.getElementById('cartList');
-const goodsTotalEl = document.getElementById('goodsTotal');
-const deliveryPriceEl = document.getElementById('deliveryPrice');
-const grandTotalEl = document.getElementById('grandTotal');
-const addressEl = document.getElementById('address');
-const phoneEl = document.getElementById('phone');
-const submitBtn = document.getElementById('submitBtn');
-const deliveryBlock = document.getElementById('deliveryBlock');
-const pickupHint = document.getElementById('pickupHint');
+  const cartListEl = document.getElementById('cartList');
+  const goodsTotalEl = document.getElementById('goodsTotal');
+  const deliveryPriceEl = document.getElementById('deliveryPrice');
+  const grandTotalEl = document.getElementById('grandTotal');
+  const addressEl = document.getElementById('address');
+  const phoneEl = document.getElementById('phone');
+  const submitBtn = document.getElementById('submitBtn');
+  const deliveryBlock = document.getElementById('deliveryBlock');
+  const pickupHint = document.getElementById('pickupHint');
 
-const mapWrapEl = document.getElementById('mapWrap');
-const toggleMapBtn = document.getElementById('toggleMap');
-const searchEl = document.getElementById('search');
-const searchBtn = document.getElementById('searchBtn');
-const suggestEl = document.getElementById('suggest');
-const locBtn = document.getElementById('locBtn');
+  const mapWrapEl = document.getElementById('mapWrap');
+  const toggleMapBtn = document.getElementById('toggleMap');
+  const searchEl = document.getElementById('search');
+  const searchBtn = document.getElementById('searchBtn');
+  const suggestEl = document.getElementById('suggest');
+  const locBtn = document.getElementById('locBtn');
 
-let map, marker;
-let coord = {lng:76.886, lat:43.238}; // Алматы центр
-let debounceTimer = null;
+  let map, marker;
+  let coord = {lng:76.886, lat:43.238}; // Алматы центр
+  let debounceTimer = null;
 
-function fmt(n){ return (Number(n)||0).toLocaleString('ru-RU'); }
-function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
-
-function renderCart(){
-  if(!items.length){
-    cartListEl.innerHTML = `<div class="muted">Корзина пуста</div>`;
-  } else {
-    cartListEl.innerHTML = items.map(x=>`
-      <div class="item">
-        <div>
-          <div>${escapeHtml(x.name||'Товар')}</div>
-          <div class="qty">${x.qty} ${escapeHtml(x.unit||'')}</div>
-        </div>
-        <div><b>${fmt(x.price)} ₸</b></div>
-      </div>
-    `).join('');
+  function fmt(n){ return (Number(n)||0).toLocaleString('ru-RU'); }
+  function escapeHtml(s){
+    const d=document.createElement('div');
+    d.textContent=s??'';
+    return d.innerHTML;
   }
-  goodsTotalEl.textContent = fmt(goodsTotal) + ' ₸';
-  deliveryPriceEl.textContent = fmt(deliveryPrice) + ' ₸';
-  grandTotalEl.textContent = fmt(goodsTotal + deliveryPrice) + ' ₸';
-}
 
-async function loadDeliveryPrice(){
-  if(deliveryType!=='delivery'){ deliveryPrice=0; renderCart(); return; }
-  try{
-    const r = await fetch(`/api/delivery/price`);
-    const j = await r.json();
-    deliveryPrice = Number(j.price||0);
-  }catch(e){ deliveryPrice = 0; }
-  renderCart();
-}
-
-function bindDeliveryType(){
-  document.querySelectorAll('input[name="dtype"]').forEach(r=>{
-    r.addEventListener('change', ()=>{
-      deliveryType = r.value;
-      const isDelivery = deliveryType === 'delivery';
-      deliveryBlock.style.display = isDelivery ? '' : 'none';
-      pickupHint.style.display = isDelivery ? 'none':'block';
-      loadDeliveryPrice();
-    });
-  });
-}
-
-toggleMapBtn.addEventListener('click', ()=>{
-  mapWrapEl.classList.toggle('expanded');
-  toggleMapBtn.textContent = mapWrapEl.classList.contains('expanded') ? 'Свернуть карту' : 'Развернуть карту';
-});
-
-locBtn.addEventListener('click', ()=>{
-  if(!navigator.geolocation){ return; }
-  navigator.geolocation.getCurrentPosition(pos=>{
-    coord.lat = pos.coords.latitude;
-    coord.lng = pos.coords.longitude;
-    setCenter(coord.lng, coord.lat, true);
-    placeMarker(coord.lng, coord.lat);
-    reverseGeocodeToInput(coord.lat, coord.lng);
-  });
-});
-
-// ------------ MAP (Yandex v3) -------------
-async function initMap(){
-  try { await ymaps3.ready; } catch(e) { console.error(e); return; }
-
-  const {YMap, YMapDefaultSchemeLayer, YMapDefaultFeaturesLayer, YMapListener} = ymaps3;
-
-  map = new YMap(document.getElementById('map'), {
-    location: {center:[coord.lng, coord.lat], zoom:14},
-    // включаем жесты: drag + pinch (мобильный), колесо (десктоп), даблклик
-    behaviors: ['drag','pinchZoom','scrollZoom','dblClick']
-  });
-
-  map.addChild(new YMapDefaultSchemeLayer());
-  map.addChild(new YMapDefaultFeaturesLayer());
-
-  placeMarker(coord.lng, coord.lat);
-
-  // Клик по карте — перенос маркера
-  map.addChild(new YMapListener({
-    onClick: (e)=>{
-      const [lng, lat] = e.coordinates;
-      placeMarker(lng, lat);
-      reverseGeocodeToInput(lat, lng);
+  function renderCart(){
+    if(!items.length){
+      cartListEl.innerHTML = '<div class="muted">Корзина пуста</div>';
+    } else {
+      cartListEl.innerHTML = items.map(x =>
+        `<div class="item">
+          <div>
+            <div>${escapeHtml(x.name||'Товар')}</div>
+            <div class="qty">${x.qty} ${escapeHtml(x.unit||'')}</div>
+          </div>
+          <div><b>${fmt(x.price)} ₸</b></div>
+        </div>`
+      ).join('');
     }
-  }));
+    goodsTotalEl.textContent = fmt(goodsTotal) + ' ₸';
+    deliveryPriceEl.textContent = fmt(deliveryPrice) + ' ₸';
+    grandTotalEl.textContent = fmt(goodsTotal + deliveryPrice) + ' ₸';
+  }
 
-  // Стартовая геолокация
-  if(navigator.geolocation){
+  async function loadDeliveryPrice(){
+    if(deliveryType!=='delivery'){
+      deliveryPrice=0;
+      renderCart();
+      return;
+    }
+    try{
+      const r = await fetch('/api/delivery/price');
+      const j = await r.json();
+      deliveryPrice = Number(j.price||0);
+    }catch(e){
+      deliveryPrice = 0;
+    }
+    renderCart();
+  }
+
+  function bindDeliveryType(){
+    document.querySelectorAll('input[name="dtype"]').forEach(r=>{
+      r.addEventListener('change', ()=>{
+        deliveryType = r.value;
+        const isDelivery = deliveryType === 'delivery';
+        deliveryBlock.style.display = isDelivery ? '' : 'none';
+        pickupHint.style.display = isDelivery ? 'none':'block';
+        loadDeliveryPrice();
+      });
+    });
+  }
+
+  // НОВОЕ: биндим способ оплаты
+  function bindPaymentMethod(){
+    document.querySelectorAll('input[name="pay"]').forEach(r=>{
+      r.addEventListener('change', ()=>{
+        paymentMethod = r.value; // "kaspi_link" | "kaspi_transfer" | "cash"
+      });
+    });
+  }
+
+  toggleMapBtn.addEventListener('click', ()=>{
+    mapWrapEl.classList.toggle('expanded');
+    toggleMapBtn.textContent = mapWrapEl.classList.contains('expanded') ? 'Свернуть карту' : 'Развернуть карту';
+  });
+
+  locBtn.addEventListener('click', ()=>{
+    if(!navigator.geolocation){ return; }
     navigator.geolocation.getCurrentPosition(pos=>{
       coord.lat = pos.coords.latitude;
       coord.lng = pos.coords.longitude;
@@ -250,181 +250,254 @@ async function initMap(){
       placeMarker(coord.lng, coord.lat);
       reverseGeocodeToInput(coord.lat, coord.lng);
     });
-  }
-}
+  });
 
-function setCenter(lng, lat, smooth=false){
-  try {
-    map.setLocation({center:[lng,lat], zoom: map.getZoom ? map.getZoom() : 14, duration: smooth? 300 : 0});
-  } catch(_) {}
-}
+  // ------------ MAP (Yandex v3) -------------
+  async function initMap(){
+    try { await ymaps3.ready; } catch(e) { console.error(e); return; }
+    const {YMap, YMapDefaultSchemeLayer, YMapDefaultFeaturesLayer, YMapListener} = ymaps3;
 
-function placeMarker(lng, lat){
-  coord = {lng, lat};
-  // удалить старый маркер
-  if (marker) {
-    try { map.removeChild(marker); } catch(_) {}
-  }
+    map = new YMap(document.getElementById('map'), {
+      location: {center:[coord.lng, coord.lat], zoom:14},
+      behaviors: ['drag','pinchZoom','scrollZoom','dblClick']
+    });
+    map.addChild(new YMapDefaultSchemeLayer());
+    map.addChild(new YMapDefaultFeaturesLayer());
 
-  const el = document.createElement('div');
-  el.style.cssText = "width:22px;height:22px;background:#19a461;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 6px rgba(0,0,0,.4);cursor:grab";
+    placeMarker(coord.lng, coord.lat);
 
-  // используем onDragEnd (v3) — координаты приходят в e.coordinates
-  marker = new ymaps3.YMapMarker(
-    { coordinates:[lng,lat], draggable:true, onDragEnd:(e)=>{
-        const [mlng, mlat] = e?.coordinates || [lng,lat];
-        coord = {lng:mlng, lat:mlat};
+    map.addChild(new YMapListener({
+      onClick: (e)=>{
+        const [lng, lat] = e.coordinates;
+        placeMarker(lng, lat);
+        reverseGeocodeToInput(lat, lng);
+      }
+    }));
+
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(pos=>{
+        coord.lat = pos.coords.latitude;
+        coord.lng = pos.coords.longitude;
+        setCenter(coord.lng, coord.lat, true);
+        placeMarker(coord.lng, coord.lat);
         reverseGeocodeToInput(coord.lat, coord.lng);
-      }},
-    el
-  );
-
-  map.addChild(marker);
-}
-
-// ------------ Geocode & Search -------------
-async function geocodeTextToPoint(text){
-  if(!text.trim()) return [];
-  const url = `https://geocode-maps.yandex.ru/1.x/?apikey=${encodeURIComponent(YANDEX_API_KEY)}&format=json&lang=ru_RU&results=5&geocode=${encodeURIComponent(text.trim())}`;
-  const r = await fetch(url, {method:'GET'});
-  if(!r.ok) return [];
-  const j = await r.json().catch(()=> ({}));
-  const members = (((j||{}).response||{}).GeoObjectCollection||{}).featureMember||[];
-  return members.map(m=>{
-    const obj = m.GeoObject||{};
-    const name = obj.name||'';
-    const text = ((obj.metaDataProperty||{}).GeocoderMetaData||{}).text || name;
-    const pos = ((obj.Point||{}).pos||'').split(' ');
-    const lng = parseFloat(pos[0]); const lat = parseFloat(pos[1]);
-    if (Number.isFinite(lng) && Number.isFinite(lat)) {
-      return {name,text,lng,lat};
+      });
     }
-    return null;
-  }).filter(Boolean);
-}
+  }
 
-async function reverseGeocodeToInput(lat, lng){
-  try{
-    const url = `https://geocode-maps.yandex.ru/1.x/?apikey=${encodeURIComponent(YANDEX_API_KEY)}&format=json&lang=ru_RU&results=1&geocode=${lng},${lat}`;
+  function setCenter(lng, lat, smooth=false){
+    try {
+      map.setLocation({
+        center:[lng,lat],
+        zoom: map.getZoom ? map.getZoom() : 14,
+        duration: smooth? 300 : 0
+      });
+    } catch(_) {}
+  }
+
+  function placeMarker(lng, lat){
+    coord = {lng, lat};
+    if (marker) {
+      try { map.removeChild(marker); } catch(_) {}
+    }
+    const el = document.createElement('div');
+    el.style.cssText = "width:22px;height:22px;background:#19a461;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 6px rgba(0,0,0,.4);cursor:grab";
+
+    marker = new ymaps3.YMapMarker(
+      {
+        coordinates:[lng,lat],
+        draggable:true,
+        onDragEnd:(e)=>{
+          const [mlng, mlat] = e?.coordinates || [lng,lat];
+          coord = {lng:mlng, lat:mlat};
+          reverseGeocodeToInput(coord.lat, coord.lng);
+        }
+      },
+      el
+    );
+    map.addChild(marker);
+  }
+
+  async function geocodeTextToPoint(text){
+    if(!text.trim()) return [];
+    const url = `https://geocode-maps.yandex.ru/1.x/?apikey=${encodeURIComponent(YANDEX_API_KEY)}&format=json&lang=ru_RU&results=5&geocode=${encodeURIComponent(text.trim())}`;
     const r = await fetch(url);
-    if(!r.ok) return;
+    if(!r.ok) return [];
     const j = await r.json().catch(()=> ({}));
     const members = (((j||{}).response||{}).GeoObjectCollection||{}).featureMember||[];
-    if (members.length){
-      const md = ((members[0].GeoObject||{}).metaDataProperty||{}).GeocoderMetaData||{};
-      const addr = (md.Address||{}).formatted || md.text || '';
-      if(addr) addressEl.value = addr;
-    }
-  }catch(e){ console.warn('reverse geocode', e); }
-}
+    return members.map(m=>{
+      const obj = m.GeoObject||{};
+      const name = obj.name||'';
+      const text = (((obj.metaDataProperty||{}).GeocoderMetaData||{}).text) || name;
+      const pos = ((obj.Point||{}).pos||'').split(' ');
+      const lng = parseFloat(pos[0]);
+      const lat = parseFloat(pos[1]);
+      if (Number.isFinite(lng) && Number.isFinite(lat)) {
+        return {name,text,lng,lat};
+      }
+      return null;
+    }).filter(Boolean);
+  }
 
-// подсказки по мере ввода
-searchEl.addEventListener('input', ()=>{
-  clearTimeout(debounceTimer);
-  const q = searchEl.value.trim();
-  if(!q){ suggestEl.style.display='none'; suggestEl.innerHTML=''; return; }
-  debounceTimer = setTimeout(runSearch, 350);
-});
+  async function reverseGeocodeToInput(lat, lng){
+    try{
+      const url = `https://geocode-maps.yandex.ru/1.x/?apikey=${encodeURIComponent(YANDEX_API_KEY)}&format=json&lang=ru_RU&results=1&geocode=${lng},${lat}`;
+      const r = await fetch(url);
+      if(!r.ok) return;
+      const j = await r.json().catch(()=> ({}));
+      const members = (((j||{}).response||{}).GeoObjectCollection||{}).featureMember||[];
+      if (members.length){
+        const md = ((members[0].GeoObject||{}).metaDataProperty||{}).GeocoderMetaData||{};
+        const addr = (md.Address||{}).formatted || md.text || '';
+        if(addr) addressEl.value = addr;
+      }
+    }catch(e){ console.warn('reverse geocode', e); }
+  }
 
-// запуск поиска по Enter и по кнопке
-searchEl.addEventListener('keydown', (e)=>{
-  if (e.key === 'Enter') { e.preventDefault(); runSearch(); }
-});
-searchBtn.addEventListener('click', runSearch);
-
-async function runSearch(){
-  const q = searchEl.value.trim();
-  if(!q){ suggestEl.style.display='none'; suggestEl.innerHTML=''; return; }
-  try{
-    const list = await geocodeTextToPoint(q);
-    if(!list.length){
-      suggestEl.innerHTML = `<div class="sugItem">Ничего не найдено</div>`;
-      suggestEl.style.display='block';
+  searchEl.addEventListener('input', ()=>{
+    clearTimeout(debounceTimer);
+    const q = searchEl.value.trim();
+    if(!q){
+      suggestEl.style.display='none';
+      suggestEl.innerHTML='';
       return;
     }
-    suggestEl.innerHTML = list.map((it,i)=>`<div class="sugItem" data-i="${i}">${escapeHtml(it.text||it.name||'')}</div>`).join('');
-    suggestEl.style.display='block';
-    suggestEl.querySelectorAll('.sugItem').forEach(div=>{
-      div.addEventListener('click', ()=>{
-        const idx = Number(div.getAttribute('data-i'));
-        const item = list[idx];
-        suggestEl.style.display='none';
-        searchEl.blur();
-        if(item){
-          setCenter(item.lng, item.lat, true);
-          placeMarker(item.lng, item.lat);
-          addressEl.value = item.text || item.name || addressEl.value;
-        }
+    debounceTimer = setTimeout(runSearch, 350);
+  });
+
+  searchEl.addEventListener('keydown', (e)=>{
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      runSearch();
+    }
+  });
+
+  searchBtn.addEventListener('click', runSearch);
+
+  async function runSearch(){
+    const q = searchEl.value.trim();
+    if(!q){
+      suggestEl.style.display='none';
+      suggestEl.innerHTML='';
+      return;
+    }
+    try{
+      const list = await geocodeTextToPoint(q);
+      if(!list.length){
+        suggestEl.innerHTML = '<div class="sugItem">Ничего не найдено</div>';
+        suggestEl.style.display='block';
+        return;
+      }
+      suggestEl.innerHTML = list.map((it,i)=>
+        `<div class="sugItem" data-i="${i}">${escapeHtml(it.text||it.name||'')}</div>`
+      ).join('');
+      suggestEl.style.display='block';
+      suggestEl.querySelectorAll('.sugItem').forEach(div=>{
+        div.addEventListener('click', ()=>{
+          const idx = Number(div.getAttribute('data-i'));
+          const item = list[idx];
+          suggestEl.style.display='none';
+          searchEl.blur();
+          if(item){
+            setCenter(item.lng, item.lat, true);
+            placeMarker(item.lng, item.lat);
+            addressEl.value = item.text || item.name || addressEl.value;
+          }
+        });
       });
+    }catch(e){
+      suggestEl.style.display='none';
+      suggestEl.innerHTML='';
+    }
+  }
+
+  document.addEventListener('click', (e)=>{
+    if(!suggestEl.contains(e.target) && e.target !== searchEl){
+      suggestEl.style.display='none';
+    }
+  });
+
+  // Submit
+  submitBtn.addEventListener('click', async ()=>{
+    const phone = String(phoneEl.value||'').trim();
+
+    if(!items.length){
+      alert('Корзина пуста');
+      return;
+    }
+    if(!telegramId){
+      alert('Не удалось получить Telegram ID');
+      return;
+    }
+
+    if(deliveryType==='delivery'){
+      if(!phone){
+        alert('Укажите телефон');
+        return;
+      }
+      if(!addressEl.value.trim()){
+        alert('Укажите адрес');
+        return;
+      }
+    } else {
+      if(!phone){
+        alert('Укажите телефон для связи');
+        return;
+      }
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ Оформляем...';
+
+    try{
+      await loadDeliveryPrice();
+
+      const res = await fetch('/api/orders/confirm', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          telegram_id: String(telegramId||''),
+          items,
+          payment_method: paymentMethod,    // НОВОЕ
+          delivery: {
+            type: deliveryType,
+            address: addressEl.value||'',
+            phone: phone,
+            lat: coord.lat,
+            lng: coord.lng,
+          }
+        })
+      });
+
+      const js = await res.json().catch(()=> ({}));
+      if(!res.ok){
+        throw new Error(js?.error || 'Ошибка оформления заказа');
+      }
+
+      if (Telegram?.WebApp?.close) Telegram.WebApp.close();
+      else {
+        alert('Заказ оформлен! Проверьте сообщение в Telegram.');
+        location.href = '/';
+      }
+    }catch(e){
+      console.error(e);
+      alert(e.message || 'Ошибка');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Подтвердить заказ';
+    }
+  });
+
+  (function init(){
+    renderCart();
+    bindDeliveryType();
+    bindPaymentMethod(); // НОВОЕ
+    loadDeliveryPrice();
+    initMap();
+
+    phoneEl.addEventListener('focus', ()=>{
+      phoneEl.setAttribute('inputmode','numeric');
     });
-  }catch(e){
-    suggestEl.style.display='none'; suggestEl.innerHTML='';
-  }
-}
-
-// Закрытие подсказок по тапу вне
-document.addEventListener('click', (e)=>{
-  if(!suggestEl.contains(e.target) && e.target !== searchEl){
-    suggestEl.style.display='none';
-  }
-});
-
-// ------------ Submit -------------
-submitBtn.addEventListener('click', async ()=>{
-  const phone = String(phoneEl.value||'').trim();
-  if(!items.length){ alert('Корзина пуста'); return; }
-  if(!telegramId){ alert('Не удалось получить Telegram ID'); return; }
-  if(deliveryType==='delivery'){
-    if(!phone){ alert('Укажите телефон'); return; }
-    if(!addressEl.value.trim()){ alert('Укажите адрес'); return; }
-  } else {
-    if(!phone){ alert('Укажите телефон для связи'); return; }
-  }
-
-  submitBtn.disabled = true;
-  submitBtn.textContent = '⏳ Оформляем...';
-
-  try{
-    await loadDeliveryPrice();
-
-    const res = await fetch('/api/orders/confirm', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        telegram_id: String(telegramId||''),
-        items,
-        delivery: {
-          type: deliveryType,
-          address: addressEl.value||'',
-          phone: phone,
-          lat: coord.lat,
-          lng: coord.lng,
-        }
-      })
-    });
-
-    const js = await res.json().catch(()=> ({}));
-    if(!res.ok){ throw new Error(js?.error || 'Ошибка оформления заказа'); }
-
-    if (Telegram?.WebApp?.close) Telegram.WebApp.close();
-    else { alert('Заказ оформлен! Проверьте сообщение в Telegram.'); location.href = '/'; }
-  }catch(e){
-    console.error(e);
-    alert(e.message || 'Ошибка');
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Подтвердить заказ';
-  }
-});
-
-// ------------ Init -------------
-(function init(){
-  renderCart();
-  bindDeliveryType();
-  loadDeliveryPrice();
-  initMap();
-  // цифровая клавиатура
-  phoneEl.addEventListener('focus', ()=> { phoneEl.setAttribute('inputmode','numeric'); });
-})();
+  })();
 </script>
 </body>
 </html>

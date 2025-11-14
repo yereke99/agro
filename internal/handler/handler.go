@@ -1,7 +1,9 @@
+// handler/handler.go
 package handler
 
 import (
 	"agro/config"
+	"agro/internal/domain"
 	"agro/internal/repository"
 	"context"
 	"database/sql"
@@ -9,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -23,6 +26,19 @@ import (
 	"go.uber.org/zap"
 )
 
+// способы оплаты
+const (
+	paymentKaspiLink     = "kaspi_link"
+	paymentKaspiTransfer = "kaspi_transfer"
+	paymentCash          = "cash"
+)
+
+// реквизиты Kaspi Gold (можно поменять под себя)
+const (
+	kaspiGoldNumber    = "4400 4301 1234 5678"
+	kaspiGoldOwnerName = "ИП «АГРО Клуб»"
+)
+
 type deliveryIn struct {
 	Type    string  `json:"type"` // "delivery" или "pickup"
 	Address string  `json:"address"`
@@ -32,9 +48,10 @@ type deliveryIn struct {
 }
 
 type confirmOrderIn struct {
-	TelegramID json.RawMessage `json:"telegram_id"`
-	Items      []orderItemIn   `json:"items"`
-	Delivery   deliveryIn      `json:"delivery"`
+	TelegramID    json.RawMessage `json:"telegram_id"`
+	Items         []orderItemIn   `json:"items"`
+	Delivery      deliveryIn      `json:"delivery"`
+	PaymentMethod string          `json:"payment_method"` // kaspi_link | kaspi_transfer | cash
 }
 
 type Handler struct {
@@ -60,11 +77,31 @@ func NewHandler(logger *zap.Logger, cfg *config.Config, ctx context.Context, db 
 
 func (h *Handler) SetBot(b *bot.Bot) { h.bot = b }
 
+// ======================== TELEGRAM HANDLERS ========================
+
 func (h *Handler) DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if update.Message == nil {
 		return
 	}
 
+	// 1) Если пользователь прислал документ (PDF/скрин), а его состояние waiting_payment —
+	//    считаем это подтверждением оплаты и шлём админу.
+	if update.Message.Document != nil && h.redisClient != nil {
+		userID := update.Message.From.ID
+
+		state, err := h.redisClient.GetUserState(ctx, userID)
+		if err != nil {
+			h.logger.Warn("get user state from redis", zap.Error(err))
+		}
+		if state != nil && state.State == stateWaitingPayment {
+			if err := h.handlePaymentDocument(ctx, b, update, state); err != nil {
+				h.logger.Warn("handle payment document", zap.Error(err))
+			}
+			return
+		}
+	}
+
+	// 2) Обычное приветствие + кнопка mini-app
 	text := "👋 Привет! Добро пожаловать в «АГРО Клуб Оптовых Цен».\n" +
 		"Нажмите кнопку ниже, чтобы открыть мини-приложение и увидеть оптовые цены, оформить подписку и сделать заказ."
 
@@ -105,6 +142,414 @@ func (h *Handler) DefaultHandler(ctx context.Context, b *bot.Bot, update *models
 		h.logger.Error("send welcome miniapp button", zap.Error(err))
 	}
 }
+
+// Хендлер callback-ов от админа по оплатам (заказы + подписки)
+// Регистрация, например:
+// bot.WithCallbackQueryDataHandler("pay_", bot.MatchTypePrefix, handl.PaymentCallbackHandler),
+// bot.WithCallbackQueryDataHandler("sub_", bot.MatchTypePrefix, handl.PaymentCallbackHandler),
+func (h *Handler) PaymentCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+
+	data := strings.TrimSpace(update.CallbackQuery.Data)
+	if data == "" {
+		return
+	}
+
+	var action string
+	switch {
+	case strings.HasPrefix(data, "pay_ok:"):
+		action = "pay_ok"
+	case strings.HasPrefix(data, "pay_reject:"):
+		action = "pay_reject"
+	case strings.HasPrefix(data, "sub_ok:"):
+		action = "sub_ok"
+	case strings.HasPrefix(data, "sub_reject:"):
+		action = "sub_reject"
+	default:
+		return
+	}
+
+	parts := strings.Split(data, ":")
+	if len(parts) != 3 {
+		return
+	}
+	idStr := parts[1] // orderID или subscriptionID
+	userIDStr := parts[2]
+
+	mainID, _ := strconv.ParseInt(idStr, 10, 64)
+	userID, _ := strconv.ParseInt(userIDStr, 10, 64)
+
+	switch action {
+	// --------- Подтверждение оплаты заказа ----------
+	case "pay_ok":
+		// отмечаем заказ как оплаченный
+		if mainID > 0 {
+			_, err := h.db.Exec(`UPDATE orders SET status = 'paid', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, mainID)
+			if err != nil {
+				h.logger.Error("update order status paid", zap.Error(err))
+			}
+		}
+
+		// обновляем состояние пользователя
+		if h.redisClient != nil && userID != 0 {
+			state, err := h.redisClient.GetUserState(ctx, userID)
+			if err != nil {
+				h.logger.Warn("get user state for update", zap.Error(err))
+			}
+			if state == nil {
+				state = &domain.UserState{}
+			}
+			state.State = stateStart
+			state.IsPaid = true
+			if err := h.redisClient.SaveUserState(ctx, userID, state); err != nil {
+				h.logger.Warn("save user state after paid", zap.Error(err))
+			}
+		}
+
+		// ответ на callback админу
+		_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "Оплата заказа подтверждена ✅",
+			ShowAlert:       false,
+		})
+
+		// уведомляем пользователя
+		if userID != 0 {
+			text := fmt.Sprintf("✅ Ваша оплата по заказу №%d подтверждена! Спасибо за заказ.", mainID)
+			_, err := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: userID,
+				Text:   text,
+			})
+			if err != nil {
+				h.logger.Warn("send paid confirmation to user", zap.Error(err))
+			}
+		}
+
+	// --------- Отклонение оплаты заказа ----------
+	case "pay_reject":
+		_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "Оплата заказа отклонена ❌",
+			ShowAlert:       false,
+		})
+
+		if userID != 0 {
+			text := fmt.Sprintf(
+				"❌ Оплата по заказу №%d не прошла проверку.\n"+
+					"Пожалуйста, свяжитесь с администратором или отправьте корректный чек ещё раз.",
+				mainID,
+			)
+			_, err := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: userID,
+				Text:   text,
+			})
+			if err != nil {
+				h.logger.Warn("send reject payment to user", zap.Error(err))
+			}
+		}
+
+	// --------- Подтверждение оплаты ПОДПИСКИ ----------
+	case "sub_ok":
+		// mainID — это id из таблицы subscriptions
+		if mainID > 0 && userID != 0 {
+			now := time.Now()
+			validUntil := now.AddDate(0, 1, 0) // +1 месяц
+
+			// активируем подписку
+			_, err := h.db.Exec(`
+				UPDATE subscriptions
+				SET status = 'active', valid_until = ?
+				WHERE id = ?
+			`, validUntil, mainID)
+			if err != nil {
+				h.logger.Error("update subscription active", zap.Error(err))
+			}
+
+			// проставляем статусы в users
+			userIDStr := fmt.Sprint(userID)
+			_, err = h.db.Exec(`
+				UPDATE users
+				SET sub_status = 'active', sub_until = ?
+				WHERE user_id = ?
+			`, validUntil, userIDStr)
+			if err != nil {
+				h.logger.Error("update user sub_status active", zap.Error(err))
+			}
+
+			// сбрасываем состояние пользователя в Redis
+			if h.redisClient != nil {
+				state, err := h.redisClient.GetUserState(ctx, userID)
+				if err != nil {
+					h.logger.Warn("get user state for sub_ok", zap.Error(err))
+				}
+				if state == nil {
+					state = &domain.UserState{}
+				}
+				state.State = stateStart
+				state.IsPaid = true
+				if err := h.redisClient.SaveUserState(ctx, userID, state); err != nil {
+					h.logger.Warn("save user state after sub_ok", zap.Error(err))
+				}
+			}
+
+			// ответ админу
+			_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+				CallbackQueryID: update.CallbackQuery.ID,
+				Text:            "Подписка активирована ✅",
+				ShowAlert:       false,
+			})
+
+			// сообщение пользователю
+			_, err = b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: userID,
+				Text: fmt.Sprintf(
+					"✅ Ваша подписка на «АГРО Клуб Оптовых Цен» активирована!\n"+
+						"Доступ к оптовым ценам до: %s.",
+					validUntil.Format("2006-01-02"),
+				),
+			})
+			if err != nil {
+				h.logger.Warn("send sub active to user", zap.Error(err))
+			}
+		}
+
+	// --------- Отклонение оплаты ПОДПИСКИ ----------
+	case "sub_reject":
+		if mainID > 0 {
+			_, err := h.db.Exec(`
+				UPDATE subscriptions
+				SET status = 'rejected'
+				WHERE id = ?
+			`, mainID)
+			if err != nil {
+				h.logger.Error("update subscription rejected", zap.Error(err))
+			}
+		}
+
+		_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "Оплата подписки отклонена ❌",
+			ShowAlert:       false,
+		})
+
+		if userID != 0 {
+			_, err := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: userID,
+				Text: "❌ Оплата подписки не прошла проверку.\n" +
+					"Пожалуйста, свяжитесь с администратором или отправьте корректный чек ещё раз.",
+			})
+			if err != nil {
+				h.logger.Warn("send sub reject to user", zap.Error(err))
+			}
+		}
+	}
+}
+
+// обработка входящего PDF/документа от пользователя в состоянии waiting_payment
+// здесь две ветки:
+//  1. если есть pending-подписка — отправляем админу как оплату подписки
+//  2. иначе — как оплату заказа (старая логика)
+func (h *Handler) handlePaymentDocument(ctx context.Context, b *bot.Bot, update *models.Update, state *domain.UserState) error {
+	if update.Message == nil || update.Message.Document == nil {
+		return nil
+	}
+
+	userID := update.Message.From.ID
+	userName := update.Message.From.Username
+	chatID := update.Message.Chat.ID
+	userIDStr := fmt.Sprint(userID)
+
+	// 1) Проверяем, есть ли "ожидающая" подписка для этого пользователя
+	var (
+		subID      int64
+		subAmount  int64
+		subPhone   string
+		subStatus  string
+		validUntil sql.NullTime
+	)
+	err := h.db.QueryRow(`
+		SELECT id, amount, phone, status, valid_until
+		FROM subscriptions
+		WHERE user_id = ? AND status = 'pending'
+		ORDER BY id DESC
+		LIMIT 1
+	`, userIDStr).Scan(&subID, &subAmount, &subPhone, &subStatus, &validUntil)
+
+	if err == nil && subID > 0 {
+		// ===== ЧЕК ПО ПОДПИСКЕ =====
+		var sb strings.Builder
+		fmt.Fprintf(&sb,
+			"💳 Подтверждение оплаты ПОДПИСКИ\n\n"+
+				"👤 Пользователь: @%s (ID: %d)\n"+
+				"📞 Телефон (из подписки): %s\n"+
+				"💰 Сумма: %d ₸\n"+
+				"📌 Статус в БД: %s\n\n"+
+				"Проверьте чек и подтвердите или отклоните оплату подписки.\n",
+			userName,
+			userID,
+			subPhone,
+			subAmount,
+			subStatus,
+		)
+
+		caption := sb.String()
+
+		cbOK := fmt.Sprintf("sub_ok:%d:%d", subID, userID)
+		cbReject := fmt.Sprintf("sub_reject:%d:%d", subID, userID)
+
+		kb := &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{
+				{
+					{Text: "✅ Активировать подписку", CallbackData: cbOK},
+					{Text: "❌ Отклонить", CallbackData: cbReject},
+				},
+			},
+		}
+
+		// копируем сообщение с документом админу
+		_, err := b.CopyMessage(ctx, &bot.CopyMessageParams{
+			ChatID:      h.cfg.AdminID,
+			FromChatID:  fmt.Sprint(chatID),
+			MessageID:   update.Message.ID,
+			Caption:     caption,
+			ReplyMarkup: kb,
+		})
+		if err != nil {
+			h.logger.Error("copy subscription payment doc to admin", zap.Error(err))
+			return err
+		}
+
+		// уведомляем пользователя
+		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: chatID,
+			Text:   "✅ Чек по подписке отправлен администратору. Мы проверим оплату и сообщим о результате.",
+		})
+		if err != nil {
+			h.logger.Warn("send subscription payment received msg to user", zap.Error(err))
+		}
+		return nil
+	}
+
+	// ===== ЕСЛИ ПОДПИСКИ pending НЕТ — ПАДАЕМ В СТАРУЮ ЛОГИКУ ОПЛАТЫ ЗАКАЗА =====
+
+	// ищем последний заказ пользователя
+	var orderID, totalAmount int64
+
+	err = h.db.QueryRow(`SELECT id, total_amount FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 1`, userIDStr).
+		Scan(&orderID, &totalAmount)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		h.logger.Warn("select last order for payment", zap.Error(err))
+	}
+
+	payMethod := state.BroadCastType
+	if payMethod == "" {
+		payMethod = paymentKaspiLink
+	}
+
+	// --- Тянем позиции заказа для админа ---
+	var itemsText string
+	if orderID > 0 {
+		rows, errItems := h.db.Query(`
+			SELECT name, unit, qty, price, amount
+			FROM order_items
+			WHERE order_id = ?
+			ORDER BY id
+		`, orderID)
+		if errItems != nil {
+			h.logger.Warn("select order items for payment", zap.Error(errItems))
+		} else {
+			defer rows.Close()
+			var sbItems strings.Builder
+			var sumItems int64
+
+			for rows.Next() {
+				var (
+					name   string
+					unit   string
+					qty    float64
+					price  int64
+					amount int64
+				)
+				if err := rows.Scan(&name, &unit, &qty, &price, &amount); err != nil {
+					h.logger.Warn("scan order item for payment", zap.Error(err))
+					continue
+				}
+				sumItems += amount
+				fmt.Fprintf(&sbItems, "• %s — %.2f %s × %d ₸ = %d ₸\n",
+					name, qty, unit, price, amount)
+			}
+
+			if sbItems.Len() > 0 {
+				itemsText = "\n🛒 Позиции заказа:\n" + sbItems.String() +
+					fmt.Sprintf("💰 Сумма по позициям: %d ₸\n", sumItems)
+			}
+		}
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb,
+		"💳 Подтверждение оплаты по заказу №%d\n\n"+
+			"👤 Пользователь: @%s (ID: %d)\n"+
+			"📞 Телефон: %s\n"+
+			"💰 Сумма из orders.total_amount: %d ₸\n"+
+			"💳 Способ оплаты: %s\n\n"+
+			"Проверьте чек и подтвердите или отклоните оплату.\n",
+		orderID,
+		userName,
+		userID,
+		state.Contact,
+		totalAmount,
+		humanPaymentMethod(payMethod),
+	)
+
+	// добавляем детали позиций (если смогли достать)
+	if itemsText != "" {
+		sb.WriteString("\n")
+		sb.WriteString(itemsText)
+	}
+
+	caption := sb.String()
+
+	cbOK := fmt.Sprintf("pay_ok:%d:%d", orderID, userID)
+	cbReject := fmt.Sprintf("pay_reject:%d:%d", orderID, userID)
+
+	kb := &models.InlineKeyboardMarkup{
+		InlineKeyboard: [][]models.InlineKeyboardButton{
+			{
+				{Text: "✅ Подтвердить оплату", CallbackData: cbOK},
+				{Text: "❌ Отклонить", CallbackData: cbReject},
+			},
+		},
+	}
+
+	// копируем сообщение с документом админу
+	_, err = b.CopyMessage(ctx, &bot.CopyMessageParams{
+		ChatID:      h.cfg.AdminID,
+		FromChatID:  fmt.Sprint(chatID),
+		MessageID:   update.Message.ID,
+		Caption:     caption,
+		ReplyMarkup: kb,
+	})
+	if err != nil {
+		h.logger.Error("copy payment doc to admin", zap.Error(err))
+		return err
+	}
+
+	// уведомляем пользователя
+	_, err = b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: chatID,
+		Text:   "✅ Чек отправлен администратору. Мы проверим оплату и сообщим о результате.",
+	})
+	if err != nil {
+		h.logger.Warn("send payment received msg to user", zap.Error(err))
+	}
+
+	return nil
+}
+
+// ======================== HTTP / MINI-APP ========================
 
 func (h *Handler) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -406,6 +851,11 @@ func (h *Handler) handleConfirmOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	payMethod := strings.TrimSpace(in.PaymentMethod)
+	if payMethod == "" {
+		payMethod = paymentKaspiLink
+	}
+
 	// Проверим выбранный магазин (как и в handleCreateOrder)
 	var store sql.NullString
 	_ = h.db.QueryRow(`SELECT selected_store FROM users WHERE user_id = ?`, tgStr).Scan(&store)
@@ -483,6 +933,22 @@ func (h *Handler) handleConfirmOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Сохраняем состояние пользователя в Redis: ждём оплаты
+	if h.redisClient != nil {
+		if uid, err := strconv.ParseInt(tgStr, 10, 64); err == nil {
+			st := &domain.UserState{
+				State:         stateWaitingPayment,
+				BroadCastType: payMethod,         // способ оплаты
+				Contact:       in.Delivery.Phone, // телефон клиента
+				IsPaid:        false,
+				Count:         0,
+			}
+			if err := h.redisClient.SaveUserState(h.ctx, uid, st); err != nil {
+				h.logger.Warn("save user state to redis", zap.Error(err))
+			}
+		}
+	}
+
 	// ⚠️ Уведомление админу с деталями доставки
 	{
 		var b strings.Builder
@@ -499,6 +965,8 @@ func (h *Handler) handleConfirmOrder(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprintf(&b, "📍 Адрес точки: %s\n", addr.String)
 			}
 		}
+
+		fmt.Fprintf(&b, "💳 Способ оплаты: %s\n", humanPaymentMethod(payMethod))
 
 		if strings.EqualFold(in.Delivery.Type, "delivery") {
 			fmt.Fprintf(&b, "🚚 Доставка на дом\n")
@@ -521,8 +989,8 @@ func (h *Handler) handleConfirmOrder(w http.ResponseWriter, r *http.Request) {
 		h.notifyAdmin(b.String())
 	}
 
-	// Чек пользователю (внутри — кнопка Kaspi)
-	if err := h.sendOrderReceiptToUser(tgStr, orderID, in.Items, total, store.String); err != nil {
+	// Чек пользователю
+	if err := h.sendOrderReceiptToUser(tgStr, orderID, in.Items, total, store.String, payMethod); err != nil {
 		h.logger.Warn("send receipt to user", zap.Error(err))
 	}
 
@@ -562,10 +1030,12 @@ func (h *Handler) handleGetSubStatus(w http.ResponseWriter, r *http.Request) {
 
 	active := false
 	until := ""
-	if subStatus == "active" && subUntil.Valid && subUntil.Time.After(time.Now()) {
+	now := time.Now()
+	if subStatus == "active" && subUntil.Valid && subUntil.Time.After(now) {
 		active = true
 		until = subUntil.Time.Format("2006-01-02")
 	} else {
+		// смотрим последнюю активную подписку в subscriptions
 		_ = h.db.QueryRow(`
 			SELECT valid_until
 			FROM subscriptions
@@ -573,7 +1043,7 @@ func (h *Handler) handleGetSubStatus(w http.ResponseWriter, r *http.Request) {
 			ORDER BY valid_until DESC
 			LIMIT 1
 		`, telegramID).Scan(&subUntil)
-		if subUntil.Valid && subUntil.Time.After(time.Now()) {
+		if subUntil.Valid && subUntil.Time.After(now) {
 			active = true
 			until = subUntil.Time.Format("2006-01-02")
 		}
@@ -596,7 +1066,7 @@ func (h *Handler) handleGetSubStatus(w http.ResponseWriter, r *http.Request) {
 		"until":         until,
 		"store_code":    selectedStore.String,
 		"store_name":    storeName.String,
-		"store_address": firstNonEmpty(addrFmt.String, storeAddr.String), // отдаём форматированный, если есть
+		"store_address": firstNonEmpty(addrFmt.String, storeAddr.String),
 		"store_lng":     storeLng.Float64,
 		"store_lat":     storeLat.Float64,
 	})
@@ -620,6 +1090,7 @@ func (h *Handler) handleRequestInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// upsert user + помечаем sub_status = pending
 	uid := uuid.New().String()
 	_, err := h.db.Exec(`
 		INSERT INTO users (id, user_id, nickname, phone, sub_status)
@@ -635,6 +1106,7 @@ func (h *Handler) handleRequestInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// создаём запись в subscriptions
 	_, err = h.db.Exec(`
 		INSERT INTO subscriptions (user_id, phone, status, amount)
 		VALUES (?, ?, 'pending', 3000)
@@ -645,10 +1117,57 @@ func (h *Handler) handleRequestInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// сохраняем состояние "ждём чек по подписке" в Redis
+	if h.redisClient != nil {
+		if tgid, err := strconv.ParseInt(in.TelegramID, 10, 64); err == nil {
+			st := &domain.UserState{
+				State:         stateWaitingPayment,
+				BroadCastType: paymentKaspiLink,
+				Contact:       in.Phone,
+				IsPaid:        false,
+			}
+			if err := h.redisClient.SaveUserState(h.ctx, tgid, st); err != nil {
+				h.logger.Warn("save user state wait sub payment", zap.Error(err))
+			}
+		}
+	}
+
+	// отправляем админу уведомление
 	h.notifyAdmin(fmt.Sprintf(
-		"🧾 Заявка на подписку\n\n👤 Telegram ID: %s\n📞 Телефон: %s\nСумма: 3000 ₸\n\nНужно выставить счёт в Kaspi и активировать.",
+		"🧾 Заявка на подписку\n\n👤 Telegram ID: %s\n📞 Телефон: %s\nСумма: 3000 ₸\n\nПользователь получил ссылку Kaspi Pay и должен прислать чек. После чека — подтвердите подписку.",
 		in.TelegramID, in.Phone,
 	))
+
+	// отправляем пользователю ссылку на оплату через бота
+	if h.bot != nil {
+		if tgid, err := strconv.ParseInt(in.TelegramID, 10, 64); err == nil {
+			kaspiURL := strings.TrimSpace(h.cfg.KaspiPayURL)
+			if kaspiURL == "" {
+				kaspiURL = "https://pay.kaspi.kz/pay/e96vsxbs"
+			}
+
+			text := "💳 Подписка АГРО Клуб — 3000 ₸/мес.\n\n" +
+				"Перейдите по ссылке Kaspi Pay и оплатите подписку, затем отправьте сюда чек (PDF или скриншот), " +
+				"чтобы администратор подтвердил оплату.\n"
+
+			kb := &models.InlineKeyboardMarkup{
+				InlineKeyboard: [][]models.InlineKeyboardButton{
+					{
+						{Text: "💳 Оплатить подписку", URL: kaspiURL},
+					},
+				},
+			}
+
+			_, err = h.bot.SendMessage(h.ctx, &bot.SendMessageParams{
+				ChatID:      tgid,
+				Text:        text,
+				ReplyMarkup: kb,
+			})
+			if err != nil {
+				h.logger.Warn("send kaspi link to user", zap.Error(err))
+			}
+		}
+	}
 
 	jsonOK(w, map[string]string{"status": "ok"})
 }
@@ -776,7 +1295,7 @@ func (h *Handler) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	// Получим магазин пользователя
 	var store sql.NullString
-	_ = h.db.QueryRow(`SELECT selected_store FROM users WHERE user_id = ?`, in.TelegramID).Scan(&store)
+	_ = h.db.QueryRow(`SELECT selected_store FROM users WHERE user_id = ?`, tgStr).Scan(&store)
 
 	// Транзакция создания заказа
 	tx, err := h.db.Begin()
@@ -799,7 +1318,7 @@ func (h *Handler) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	res, err := tx.Exec(`
 		INSERT INTO orders (user_id, store_code, total_amount, status)
 		VALUES (?, ?, ?, 'new')
-	`, in.TelegramID, nullIfEmpty(store.String), total)
+	`, tgStr, nullIfEmpty(store.String), total)
 	if err != nil {
 		h.logger.Error("insert order", zap.Error(err))
 		jsonErr(w, http.StatusInternalServerError, "db error")
@@ -837,7 +1356,7 @@ func (h *Handler) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	{
 		var b strings.Builder
 		fmt.Fprintf(&b, "🧾 Новый заказ\n\n")
-		fmt.Fprintf(&b, "👤 Telegram ID: %s\n", in.TelegramID)
+		fmt.Fprintf(&b, "👤 Telegram ID: %s\n", tgStr)
 		if store.Valid && store.String != "" {
 			var name, addr sql.NullString
 			_ = h.db.QueryRow(`SELECT name, address FROM stores WHERE code = ?`, store.String).Scan(&name, &addr)
@@ -857,17 +1376,16 @@ func (h *Handler) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 		h.notifyAdmin(b.String())
 	}
 
-	// Чек пользователю с кнопкой Kaspi Pay
-	if err := h.sendOrderReceiptToUser(tgStr, orderID, in.Items, total, store.String); err != nil {
+	// Чек пользователю с кнопкой Kaspi Pay (по умолчанию kaspi_link)
+	if err := h.sendOrderReceiptToUser(tgStr, orderID, in.Items, total, store.String, paymentKaspiLink); err != nil {
 		h.logger.Warn("send receipt to user", zap.Error(err))
-		// Не фейлим заказ из-за проблем с отправкой сообщения
 	}
 
 	jsonOK(w, map[string]any{"status": "ok", "order_id": orderID, "total": total})
 }
 
-// Формирует и отправляет пользователю сообщение с позициями, суммой и кнопкой "Оплатить Kaspi".
-func (h *Handler) sendOrderReceiptToUser(telegramID string, orderID int64, items []orderItemIn, total int64, storeCode string) error {
+// Формирует и отправляет пользователю сообщение с позициями, суммой и способом оплаты.
+func (h *Handler) sendOrderReceiptToUser(telegramID string, orderID int64, items []orderItemIn, total int64, storeCode string, paymentMethod string) error {
 	if h.bot == nil {
 		return fmt.Errorf("bot is nil")
 	}
@@ -891,6 +1409,10 @@ func (h *Handler) sendOrderReceiptToUser(telegramID string, orderID int64, items
 		).Scan(&storeName, &storeAddr)
 	}
 
+	if paymentMethod == "" {
+		paymentMethod = paymentKaspiLink
+	}
+
 	// 3) Сформируем текст чека
 	var b strings.Builder
 	fmt.Fprintf(&b, "✅ Заказ №%d принят!\n\n", orderID)
@@ -900,54 +1422,80 @@ func (h *Handler) sendOrderReceiptToUser(telegramID string, orderID int64, items
 	if storeAddr != "" {
 		fmt.Fprintf(&b, "📍 Адрес: %s\n", storeAddr)
 	}
+
+	fmt.Fprintf(&b, "💳 Способ оплаты: %s\n\n", humanPaymentMethod(paymentMethod))
+
 	b.WriteString("🛒 Позиции:\n")
 
 	var calcTotal int64
 	for _, it := range items {
-		// защита от мусора
 		if it.Qty <= 0 || it.Price < 0 {
 			continue
 		}
 		lineAmount := int64(it.Qty * float64(it.Price))
 		calcTotal += lineAmount
 
-		// Пример: • Картофель — 3.00 кг × 250 ₸ = 750 ₸
 		fmt.Fprintf(&b, "• %s — %.2f %s × %d ₸ = %d ₸\n",
 			it.Name, it.Qty, it.Unit, it.Price, lineAmount)
 	}
 
-	// если на сервере есть своя логика наценок/скидок — доверяем аргументу total
 	if calcTotal == 0 && total > 0 {
 		calcTotal = total
 	}
 
 	fmt.Fprintf(&b, "\n💰 Итого к оплате: %d ₸\n", calcTotal)
 
-	// 4) Ссылка Kaspi Pay
-	kaspiURL := h.cfg.KaspiPayURL
-	if strings.TrimSpace(kaspiURL) == "" {
-		kaspiURL = "https://pay.kaspi.kz/pay/e96vsxbs"
-	}
-
-	kb := &models.InlineKeyboardMarkup{
-		InlineKeyboard: [][]models.InlineKeyboardButton{
-			{
-				{Text: "💳 Оплатить в Kaspi", URL: kaspiURL},
+	// ReplyMarkup
+	var kb models.ReplyMarkup
+	switch paymentMethod {
+	case paymentKaspiLink:
+		kaspiURL := h.cfg.KaspiPayURL
+		if strings.TrimSpace(kaspiURL) == "" {
+			kaspiURL = "https://pay.kaspi.kz/pay/e96vsxbs"
+		}
+		kb = &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{
+				{
+					{Text: "💳 Оплатить в Kaspi", URL: kaspiURL},
+				},
 			},
-		},
+		}
+	case paymentKaspiTransfer:
+		b.WriteString("\n📌 Реквизиты для перевода на Kaspi Gold:\n")
+		fmt.Fprintf(&b, "Номер карты: %s\n", kaspiGoldNumber)
+		fmt.Fprintf(&b, "Получатель: %s\n\n", kaspiGoldOwnerName)
+		b.WriteString("После оплаты, пожалуйста, отправьте сюда PDF или скрин чека, чтобы мы могли подтвердить платеж ✅.\n")
+	case paymentCash:
+		b.WriteString("\n💵 Оплата наличными при получении заказа.\n")
+	default:
+		kaspiURL := h.cfg.KaspiPayURL
+		if strings.TrimSpace(kaspiURL) == "" {
+			kaspiURL = "https://pay.kaspi.kz/pay/e96vsxbs"
+		}
+		kb = &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{
+				{
+					{Text: "💳 Оплатить в Kaspi", URL: kaspiURL},
+				},
+			},
+		}
 	}
 
 	// 5) Отправка сообщения пользователю
-	_, err = h.bot.SendMessage(h.ctx, &bot.SendMessageParams{
-		ChatID:      tgid,
-		Text:        b.String(),
-		ReplyMarkup: kb,
-		// ParseMode:   models.ParseModeMarkdown, // если захотите оформление
-	})
+	params := &bot.SendMessageParams{
+		ChatID: tgid,
+		Text:   b.String(),
+	}
+	if kb != nil {
+		params.ReplyMarkup = kb
+	}
+
+	_, err = h.bot.SendMessage(h.ctx, params)
 	return err
 }
 
 // ========================= ADMIN PRODUCTS =========================
+
 func (h *Handler) handleAdminListProducts(w http.ResponseWriter, r *http.Request) {
 	if !h.isAdminRequest(r) {
 		jsonErr(w, http.StatusForbidden, "forbidden")
@@ -1244,15 +1792,19 @@ type createOrderIn struct {
 }
 
 // ========================= HELPERS =========================
+
 func (h *Handler) notifyAdmin(text string) {
 	if h.bot == nil || h.cfg == nil || h.cfg.AdminID == 0 {
 		return
 	}
 	go func() {
-		_, _ = h.bot.SendMessage(h.ctx, &bot.SendMessageParams{
+		_, err := h.bot.SendMessage(h.ctx, &bot.SendMessageParams{
 			ChatID: h.cfg.AdminID,
 			Text:   text,
 		})
+		if err != nil {
+			log.Println("notifyAdmin error:", err)
+		}
 	}()
 }
 
@@ -1306,4 +1858,15 @@ func nullIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+func humanPaymentMethod(m string) string {
+	switch m {
+	case paymentKaspiTransfer:
+		return "Kaspi Gold (перевод)"
+	case paymentCash:
+		return "Наличные"
+	default:
+		return "Kaspi Pay (ссылка)"
+	}
 }

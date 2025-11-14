@@ -7,12 +7,12 @@
   <title>АГРО Клуб Оптовых Цен — Добро пожаловать</title>
   <style>
     :root{
-      --bg:#f6f9f4;            /* светлый фон как у агро-брендов */
+      --bg:#f6f9f4;
       --card:#ffffff;
-      --ink:#0b1f0b;           /* тёмно-зелёный текст */
+      --ink:#0b1f0b;
       --muted:#6b806b;
-      --brand:#19a461;         /* зелёный */
-      --brand-2:#88c057;       /* лаймово-зелёный акцент */
+      --brand:#19a461;
+      --brand-2:#88c057;
       --danger:#e53935;
       --border:#e7efe2;
       --shadow:0 10px 30px rgba(25,164,97,.15);
@@ -45,7 +45,7 @@
     .hero-sub{color:var(--muted);font-size:14px;margin-top:4px;line-height:1.35}
     .grid{
       display:grid; gap:12px; margin:4px 16px 16px;
-      grid-template-columns:1fr; /* в мини-аппе — одна колонка */
+      grid-template-columns:1fr;
     }
     .btn{
       display:flex;align-items:center;gap:12px;
@@ -120,7 +120,6 @@
 </div>
 
 <script>
-  // Telegram Mini App boot
   (function initTG(){
     try{
       Telegram.WebApp.ready();
@@ -129,9 +128,10 @@
   })();
 
   let telegramId = null;
-  try{ telegramId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(e){}
+  try{
+    telegramId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null;
+  }catch(e){}
 
-  // Подтягиваем статус подписки
   async function loadStatus(){
     const badge = document.getElementById('subStatus');
     try{
@@ -155,43 +155,52 @@
   }
   loadStatus();
 
-  // Кнопка «Подписка»: показываем логику 3000 ₸ и сбор номера
   document.getElementById('subscribeBtn').addEventListener('click', async ()=>{
-    const ok = confirm('Подписка 3000 ₸/мес.\nПосле оплаты вы получите оптовые цены.\n\nПродолжить?');
+    if(!telegramId){
+      alert('Ошибка: не удалось получить ваш Telegram ID.\nОткройте мини-приложение из бота ещё раз.');
+      return;
+    }
+
+    const ok = confirm(
+      'Подписка 3000 ₸/мес.\n' +
+      'Вы получите доступ к оптовым ценам.\n\n' +
+      'Оплата через Kaspi Pay.\nПродолжить?'
+    );
     if(!ok) return;
 
-    // Просим телефон через Telegram, либо через prompt fallback
-    try{
-      if (Telegram?.WebApp?.requestContact){
-        Telegram.WebApp.requestContact();
-      }
-    }catch(_){}
-
-    const phone = prompt('Введите номер телефона (Kaspi): +7 ...');
+    const phone = prompt('Введите номер телефона (Kaspi, формата +7 ...):');
     if(!phone) return;
 
     await fetch('/api/subscribe/request-invoice', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({telegram_id: telegramId, phone})
+      body:JSON.stringify({telegram_id: String(telegramId), phone})
     });
 
     if (Telegram?.WebApp?.showAlert){
-      Telegram.WebApp.showAlert('Заявка отправлена администратору. Счёт на Kaspi придёт в ближайшее время.');
+      Telegram.WebApp.showAlert(
+        'Ссылка на оплату подписки отправлена вам в Telegram.\n' +
+        'После оплаты, пожалуйста, пришлите чек боту.'
+      );
     } else {
-      alert('Заявка отправлена администратору.');
+      alert(
+        'Ссылка на оплату подписки отправлена вам в Telegram.\n' +
+        'После оплаты, пожалуйста, пришлите чек боту.'
+      );
     }
   });
 
-  // Кнопка «Выбрать магазин»
   document.getElementById('storeBtn').addEventListener('click', async ()=>{
-    // Простая форма выбора — через prompt (в мини-аппе можно заменить на отдельный экран)
+    if(!telegramId){
+      alert('Ошибка: не удалось получить ваш Telegram ID.\nОткройте мини-приложение из бота ещё раз.');
+      return;
+    }
     const store = prompt('Выберите магазин: Самал-3 / Аксай / Сайран / Алгабас / Таугуль');
     if(!store) return;
     await fetch('/api/user/set-store', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({telegram_id: telegramId, store})
+      body:JSON.stringify({telegram_id: String(telegramId), store})
     });
     if (Telegram?.WebApp?.showAlert){
       Telegram.WebApp.showAlert('Магазин сохранён в профиле.');

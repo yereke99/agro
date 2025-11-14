@@ -42,12 +42,25 @@ func main() {
 		zapLogger.Fatal("error conn to redis", zap.Error(err))
 	}
 	redisRepo := repository.NewRedisClient(redisClient)
+
 	handl := handler.NewHandler(zapLogger, cfg, ctx, db, redisRepo)
+
 	opts := []bot.Option{
-		bot.WithAllowedUpdates([]string{"message", "callback_query"}), // <— add this
+		// Разрешаем сообщения и callback_query
+		bot.WithAllowedUpdates([]string{"message", "callback_query"}),
+
+		// Админ-команды
 		bot.WithMessageTextHandler("/admin", bot.MatchTypeExact, handl.AdminHandler),
 		bot.WithMessageTextHandler("📢 Хабарлама (Messages)", bot.MatchTypeExact, handl.AdminHandler),
 		bot.WithMessageTextHandler("❌ Жабу (Close)", bot.MatchTypeExact, handl.AdminHandler),
+
+		// ✅ Хендлер для inline-кнопок оплаты ЗАКАЗОВ (pay_ok:... / pay_reject:...)
+		bot.WithCallbackQueryDataHandler("pay_", bot.MatchTypePrefix, handl.PaymentCallbackHandler),
+
+		// ✅ Хендлер для inline-кнопок оплаты ПОДПИСОК (sub_ok:... / sub_reject:...)
+		bot.WithCallbackQueryDataHandler("sub_", bot.MatchTypePrefix, handl.PaymentCallbackHandler),
+
+		// Дефолтный хендлер (приветствие + мини-апп)
 		bot.WithDefaultHandler(handl.DefaultHandler),
 	}
 
@@ -69,5 +82,6 @@ func main() {
 	go handl.StartWebServer(ctx, b)
 	zapLogger.Info("Starting web server", zap.String("port", cfg.Port))
 	zapLogger.Info("Bot started successfully")
+
 	b.Start(ctx)
 }
