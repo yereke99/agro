@@ -2,23 +2,33 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-visual"
+  />
   <title>АГРО Админ — Добавить товар</title>
+
   <style>
     :root{
       --bg:#f6f9f4; --card:#fff; --ink:#0b1f0b; --muted:#6b806b;
       --brand:#19a461; --brand-2:#88c057; --border:#e7efe2; --shadow:0 10px 30px rgba(25,164,97,.15);
+
+      /* synced by JS (Telegram viewport stable height) */
+      --app-vh: 100vh;
     }
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{height:100%}
     body{
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,Arial,sans-serif;
       background:var(--bg); color:var(--ink);
-      height:var(--tg-viewport-stable-height,100vh);
-      min-height:var(--tg-viewport-stable-height,100vh);
+
+      height:var(--app-vh);
+      min-height:var(--app-vh);
+
       padding-top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px) + 15px);
       padding-bottom:calc(var(--tg-safe-area-inset-bottom,0px) + 12px);
+
+      overflow-x:hidden;
     }
     .card{margin:16px; padding:16px; border-radius:16px; background:var(--card); border:1px solid var(--border); box-shadow:var(--shadow)}
     .h{font-weight:900; font-size:18px; margin-bottom:12px}
@@ -31,14 +41,17 @@
     .btn{padding:12px 14px; border-radius:12px; border:0; font-weight:900; cursor:pointer}
     .btn.save{background:linear-gradient(135deg,var(--brand),var(--brand-2)); color:#fff; flex:1}
     .btn.cancel{background:#eef5ea; color:#2d5b2d}
+    .btn:disabled{opacity:.55; cursor:not-allowed}
     .note{color:#b26b00; background:#fff9ed; border:1px dashed #ffd9a6; padding:10px 12px; border-radius:12px; margin-top:10px}
     .upload{border:2px dashed var(--border); border-radius:12px; background:#fcfffa; padding:16px; text-align:center; cursor:pointer}
     .preview{margin-top:10px; display:none}
     .preview img{max-width:160px; border-radius:12px; border:1px solid var(--border)}
     @media (max-width:760px){ .grid{grid-template-columns:1fr} }
   </style>
+
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
+
 <body>
   <div class="card" id="card">
     <div class="h">Добавить товар</div>
@@ -108,8 +121,85 @@
   </div>
 
 <script>
+  // =========================
+  // Force Expand / Fullscreen
+  // =========================
+  function tgAvailable(){
+    return !!(window.Telegram && Telegram.WebApp);
+  }
+
+  function syncViewportVars(){
+    let h = window.innerHeight;
+
+    try{
+      if (tgAvailable() && Telegram.WebApp.viewportStableHeight) {
+        h = Telegram.WebApp.viewportStableHeight;
+      } else if (tgAvailable() && Telegram.WebApp.viewportHeight) {
+        h = Telegram.WebApp.viewportHeight;
+      }
+    }catch(_){}
+
+    document.documentElement.style.setProperty('--app-vh', h + 'px');
+  }
+
+  function forceExpand(){
+    syncViewportVars();
+
+    if(!tgAvailable()) return;
+
+    const wa = Telegram.WebApp;
+
+    try{ wa.ready(); }catch(_){}
+    try{ wa.expand(); }catch(_){}
+
+    // Newer Telegram clients may support fullscreen requests.
+    try{
+      if (typeof wa.requestFullscreen === 'function') wa.requestFullscreen();
+    }catch(_){}
+
+    // Retry expand a few times (useful when opened from Menu button)
+    let tries = 0;
+    const maxTries = 8;
+
+    const retry = () => {
+      tries++;
+      try{ wa.expand(); }catch(_){}
+      syncViewportVars();
+
+      if (wa.isExpanded || tries >= maxTries) return;
+      setTimeout(retry, 120);
+    };
+
+    setTimeout(retry, 60);
+
+    try{
+      wa.onEvent('viewportChanged', () => {
+        try{ wa.expand(); }catch(_){}
+        syncViewportVars();
+      });
+    }catch(_){}
+
+    try{
+      wa.onEvent('fullscreen_changed', syncViewportVars);
+      wa.onEvent('fullscreen_failed', syncViewportVars);
+    }catch(_){}
+  }
+
+  (function initTG(){
+    forceExpand();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', forceExpand);
+    }
+    window.addEventListener('resize', syncViewportVars);
+  })();
+
+  // =========================
+  // Original logic (preserved)
+  // =========================
   let tgId = null;
-  try{ Telegram.WebApp.ready(); Telegram.WebApp.expand(); tgId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(_){}
+  try{
+    tgId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null;
+  }catch(_){}
 
   const storeEl = document.getElementById('store');
   const noStoresEl = document.getElementById('noStores');
@@ -119,53 +209,92 @@
     const r = await fetch('/api/stores');
     const js = await r.json();
     if(!Array.isArray(js) || js.length===0){
-      storeEl.style.display='none'; noStoresEl.style.display='block'; saveBtn.disabled = true;
+      storeEl.style.display='none';
+      noStoresEl.style.display='block';
+      saveBtn.disabled = true;
       return;
     }
-    noStoresEl.style.display='none'; storeEl.style.display='block'; saveBtn.disabled = false;
-    storeEl.innerHTML = js.map(s=>`<option value="${s.code}">${s.name} — ${s.address||'без адреса'}</option>`).join('');
+    noStoresEl.style.display='none';
+    storeEl.style.display='block';
+    saveBtn.disabled = false;
+
+    storeEl.innerHTML = js.map(s=>{
+      const name = String(s.name ?? '');
+      const addr = String(s.address ?? 'без адреса');
+      const code = String(s.code ?? '');
+      return `<option value="${code.replace(/"/g,'&quot;')}">${name} — ${addr}</option>`;
+    }).join('');
   }
 
   function preview(inp){
     const f = inp.files && inp.files[0]; if(!f) return;
-    const img = document.getElementById('img'); const p=document.getElementById('preview');
-    const r = new FileReader(); r.onload = e => { img.src=e.target.result; p.style.display='block'; }; r.readAsDataURL(f);
+    const img = document.getElementById('img');
+    const p = document.getElementById('preview');
+    const r = new FileReader();
+    r.onload = e => { img.src = e.target.result; p.style.display='block'; };
+    r.readAsDataURL(f);
+  }
+
+  function toast(t){
+    if (Telegram?.WebApp?.showAlert) Telegram.WebApp.showAlert(t);
+    else alert(t);
   }
 
   async function save(e){
     e.preventDefault();
     if(saveBtn.disabled){ return; }
 
-    const name  = nameEl.value.trim(), cat=catEl.value, unit=unitEl.value.trim(), price=priceEl.value;
-    const store = storeEl.value;
-    if(!name || !cat || !unit || price==='' || !store){ return toast('Заполните обязательные поля'); }
+    const name  = nameEl.value.trim(),
+          cat   = catEl.value,
+          unit  = unitEl.value.trim(),
+          price = priceEl.value,
+          store = storeEl.value;
+
+    if(!name || !cat || !unit || price==='' || !store){
+      return toast('Заполните обязательные поля');
+    }
 
     const fd = new FormData();
-    fd.append('name',name); fd.append('category',cat); fd.append('unit',unit);
-    fd.append('price',price); fd.append('active',activeEl.value); fd.append('description',descEl.value.trim());
+    fd.append('name', name);
+    fd.append('category', cat);
+    fd.append('unit', unit);
+    fd.append('price', price);
+    fd.append('active', activeEl.value);
+    fd.append('description', descEl.value.trim());
     fd.append('store_code', store);
-    if(photoEl.files && photoEl.files[0]) fd.append('photo', photoEl.files[0]);
 
-    const headers = {}; if (tgId) headers['X-Telegram-Id'] = String(tgId);
-    const r = await fetch('/api/admin/products/add', {method:'POST', headers, body:fd});
-    if(r.ok){ toast('Товар добавлен'); setTimeout(()=>location.href='/admin-show-catalog', 600); }
-    else { const t = await r.text(); toast('Ошибка: '+t); }
+    if(photoEl.files && photoEl.files[0]){
+      fd.append('photo', photoEl.files[0]);
+    }
+
+    const headers = {};
+    if (tgId) headers['X-Telegram-Id'] = String(tgId);
+
+    const r = await fetch('/api/admin/products/add', { method:'POST', headers, body: fd });
+    if(r.ok){
+      toast('Товар добавлен');
+      setTimeout(()=>location.href='/admin-show-catalog', 600);
+    }else{
+      const t = await r.text();
+      toast('Ошибка: ' + t);
+    }
   }
 
-  function toast(t){ if(Telegram?.WebApp?.showAlert) Telegram.WebApp.showAlert(t); else alert(t); }
+  const nameEl   = document.getElementById('name');
+  const catEl    = document.getElementById('cat');
+  const unitEl   = document.getElementById('unit');
+  const priceEl  = document.getElementById('price');
+  const activeEl = document.getElementById('active');
+  const descEl   = document.getElementById('desc');
+  const photoEl  = document.getElementById('photo');
 
-  const nameEl = document.getElementById('name');
-  const catEl  = document.getElementById('cat');
-  const unitEl = document.getElementById('unit');
-  const priceEl= document.getElementById('price');
-  const activeEl= document.getElementById('active');
-  const descEl = document.getElementById('desc');
-  const photoEl= document.getElementById('photo');
   document.getElementById('f').addEventListener('submit', save);
   photoEl.addEventListener('change', function(){ preview(this); });
   document.getElementById('uploadBtn').addEventListener('click', ()=> photoEl.click());
 
-  (async function(){ await loadStores(); })();
+  (async function init(){
+    await loadStores();
+  })();
 </script>
 </body>
 </html>

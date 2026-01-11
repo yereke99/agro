@@ -32,11 +32,10 @@ func NewConfig() (*Config, error) {
 	token := envOrDefault("TELEGRAM_BOT_TOKEN",
 		"8288790284:AAHkDouevMu_7ddQk9CleHDrOdRqFalBV-M")
 
-	port := envOrDefault("PORT", "8080")
+	port := envOrDefault("PORT", "8081")
 	dbPath := envOrDefault("DB_PATH", "./agro.db")
 
-	miniAppUrl := envOrDefault("MINI_APP_URL",
-		"https://d5dec5ae7f52.ngrok-free.app")
+	miniAppUrl := "https://meily.kz"
 
 	// Admin ID — можно переопределить через ENV ADMIN_ID
 	adminIDStr := envOrDefault("ADMIN_ID", "800703982")

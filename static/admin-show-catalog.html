@@ -2,24 +2,34 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-visual"
+  />
   <title>АГРО Админ — Каталог</title>
+
   <style>
     :root{
       --bg:#f6f9f4; --card:#fff; --ink:#0b1f0b; --muted:#6b806b;
       --brand:#19a461; --brand-2:#88c057; --border:#e7efe2; --shadow:0 10px 30px rgba(25,164,97,.15);
       --danger:#e53935;
+
+      /* synced by JS (Telegram viewport stable height) */
+      --app-vh: 100vh;
     }
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{height:100%}
     body{
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,Arial,sans-serif;
       background:var(--bg); color:var(--ink);
-      height:var(--tg-viewport-stable-height,100vh);
-      min-height:var(--tg-viewport-stable-height,100vh);
+
+      height:var(--app-vh);
+      min-height:var(--app-vh);
+
       padding-top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px) + 15px);
       padding-bottom:calc(var(--tg-safe-area-inset-bottom,0px) + 12px);
+
+      overflow-x:hidden;
     }
     .wrap{padding:16px}
     .head{display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap}
@@ -27,6 +37,8 @@
     .btn{padding:10px 14px; border-radius:14px; border:0; font-weight:900; cursor:pointer}
     .btn.add{background:linear-gradient(135deg,var(--brand),var(--brand-2)); color:#fff}
     .btn.secondary{background:#eef5ea; color:#2d5b2d}
+    .btn:disabled{opacity:.55; cursor:not-allowed}
+
     .search{margin:12px 0}
     .search input{width:100%; padding:12px 12px; border:1px solid var(--border); border-radius:12px; background:#fff}
 
@@ -47,24 +59,110 @@
     .empty{margin-top:24px; color:var(--muted); text-align:center}
     .note{color:#b26b00; background:#fff9ed; border:1px dashed #ffd9a6; padding:10px 12px; border-radius:12px; margin-top:10px}
   </style>
+
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
+
 <body>
   <div class="wrap" id="wrap">
     <div class="head">
       <div class="h">Каталог (админ)</div>
-      <button class="btn add" id="addBtn">Добавить товар</button>
-      <button class="btn secondary" id="addStoreBtn">Добавить точку</button>
+      <button class="btn add" id="addBtn" type="button">Добавить товар</button>
+      <button class="btn secondary" id="addStoreBtn" type="button">Добавить точку</button>
     </div>
-    <div id="storesNote" class="note" style="display:none">Нет ни одной точки. Сначала добавьте точку, затем товары будут привязываться к ней.</div>
-    <div class="search"><input id="q" placeholder="Поиск: название, категория..."></div>
+
+    <div id="storesNote" class="note" style="display:none">
+      Нет ни одной точки. Сначала добавьте точку, затем товары будут привязываться к ней.
+    </div>
+
+    <div class="search">
+      <input id="q" placeholder="Поиск: название, категория...">
+    </div>
+
     <div id="list" class="list"></div>
     <div id="empty" class="empty" style="display:none">Ничего не найдено…</div>
   </div>
 
 <script>
+  // =========================
+  // Force Expand / Fullscreen
+  // =========================
+  function tgAvailable(){
+    return !!(window.Telegram && Telegram.WebApp);
+  }
+
+  function syncViewportVars(){
+    let h = window.innerHeight;
+
+    try{
+      if (tgAvailable() && Telegram.WebApp.viewportStableHeight) {
+        h = Telegram.WebApp.viewportStableHeight;
+      } else if (tgAvailable() && Telegram.WebApp.viewportHeight) {
+        h = Telegram.WebApp.viewportHeight;
+      }
+    }catch(_){}
+
+    document.documentElement.style.setProperty('--app-vh', h + 'px');
+  }
+
+  function forceExpand(){
+    syncViewportVars();
+
+    if(!tgAvailable()) return;
+
+    const wa = Telegram.WebApp;
+
+    try{ wa.ready(); }catch(_){}
+    try{ wa.expand(); }catch(_){}
+
+    // Newer Telegram clients may support fullscreen requests.
+    try{
+      if (typeof wa.requestFullscreen === 'function') wa.requestFullscreen();
+    }catch(_){}
+
+    // Retry expand a few times (useful when opened from Menu button)
+    let tries = 0;
+    const maxTries = 8;
+
+    const retry = () => {
+      tries++;
+      try{ wa.expand(); }catch(_){}
+      syncViewportVars();
+
+      if (wa.isExpanded || tries >= maxTries) return;
+      setTimeout(retry, 120);
+    };
+
+    setTimeout(retry, 60);
+
+    try{
+      wa.onEvent('viewportChanged', () => {
+        try{ wa.expand(); }catch(_){}
+        syncViewportVars();
+      });
+    }catch(_){}
+
+    try{
+      wa.onEvent('fullscreen_changed', syncViewportVars);
+      wa.onEvent('fullscreen_failed', syncViewportVars);
+    }catch(_){}
+  }
+
+  (function initTG(){
+    forceExpand();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', forceExpand);
+    }
+    window.addEventListener('resize', syncViewportVars);
+  })();
+
+  // =========================
+  // Original logic (preserved)
+  // =========================
   let tgId = null;
-  try{ Telegram.WebApp.ready(); Telegram.WebApp.expand(); tgId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }catch(_){}
+  try{
+    tgId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null;
+  }catch(_){}
 
   document.getElementById('addBtn').onclick = ()=> location.href='/admin-add';
   document.getElementById('addStoreBtn').onclick = ()=> location.href='/admin-add-store';
@@ -80,8 +178,10 @@
   async function loadStores(){
     const r = await fetch('/api/stores');
     const js = await r.json();
+
     storeMap = {};
-    (js||[]).forEach(s=> storeMap[s.code] = s);
+    (js||[]).forEach(s => { storeMap[s.code] = s; });
+
     if(!Array.isArray(js) || js.length===0){
       storesNoteEl.style.display='block';
       addBtn.disabled = true;
@@ -95,18 +195,21 @@
 
   function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
   function escapeAttr(s){ return String(s??'').replace(/"/g,'&quot;'); }
+
   function photoURL(raw){
     const p = (raw||'').trim();
     if(!p) return '';
     if(/^https?:\/\//i.test(p)) return p;
-    return window.location.origin.replace(/\/+$/,'') + (p.startsWith('/')?p:'/'+p);
+    return window.location.origin.replace(/\/+$/,'') + (p.startsWith('/') ? p : '/' + p);
   }
 
   async function load(){
     const headers = {};
     if (tgId) headers['X-Telegram-Id'] = String(tgId);
+
     const r = await fetch('/api/admin/products', {headers});
     if(!r.ok){ block('Доступ запрещён'); return; }
+
     const js = await r.json();
     window._all = Array.isArray(js) ? js : [];
     render();
@@ -122,7 +225,9 @@
     });
 
     if(items.length===0){
-      listEl.innerHTML = ''; emptyEl.style.display = 'block'; return;
+      listEl.innerHTML = '';
+      emptyEl.style.display = 'block';
+      return;
     }
     emptyEl.style.display = 'none';
 
@@ -130,20 +235,24 @@
       const src = photoURL(p.photo);
       const pic = src ? `<img src="${escapeAttr(src)}" alt="">` : '';
       const active = Number(p.active) ? 'Активен' : 'Скрыт';
+
       const st = storeMap[p.store_code] || {};
-      const storeTitle = st.name ? `${st.name}${st.address ? ' • '+st.address:''}` : (p.store_code||'—');
+      const storeTitle = st.name
+        ? `${st.name}${st.address ? ' • ' + st.address : ''}`
+        : (p.store_code||'—');
+
       return `
       <div class="row" data-id="${p.id}">
         <div class="pic">${pic}</div>
         <div class="info">
           <div class="name">${escapeHtml(p.name)}</div>
-          <div class="muted">${labelCat(p.category)} • ${p.unit || '₸/кг'} • ${active}</div>
+          <div class="muted">${labelCat(p.category)} • ${escapeHtml(p.unit || '₸/кг')} • ${active}</div>
           <div class="price">${p.price} ₸</div>
           <div class="muted">Точка: ${escapeHtml(storeTitle)}</div>
         </div>
         <div class="actions">
-          <button class="btn sec" data-act="edit">Редактировать</button>
-          <button class="btn del" data-act="del">Удалить</button>
+          <button class="btn sec" data-act="edit" type="button">Редактировать</button>
+          <button class="btn del" data-act="del" type="button">Удалить</button>
         </div>
       </div>`;
     }).join('');
@@ -162,6 +271,7 @@
   listEl.addEventListener('click', async (e)=>{
     const btn = e.target.closest('button[data-act]');
     if(!btn) return;
+
     const row = e.target.closest('.row');
     const id = row?.getAttribute('data-id');
     if(!id) return;
@@ -170,22 +280,24 @@
     if (tgId) headers['X-Telegram-Id'] = String(tgId);
 
     if(btn.dataset.act==='edit'){
-      location.href = '/admin-edit-product?id='+encodeURIComponent(id);
+      location.href = '/admin-edit-product?id=' + encodeURIComponent(id);
       return;
     }
 
     if(btn.dataset.act==='del'){
       const ok = confirm('Удалить товар? Это действие нельзя отменить.');
       if(!ok) return;
+
       const r = await fetch('/api/admin/products/delete', {
         method:'POST', headers, body: JSON.stringify({id:Number(id)})
       });
+
       if(r.ok){
         window._all = (window._all||[]).filter(p=>String(p.id)!==String(id));
         render();
       }else{
         const t = await r.text();
-        alert('Ошибка: '+t);
+        alert('Ошибка: ' + t);
       }
     }
   });
@@ -198,7 +310,7 @@
 
   qEl.addEventListener('input', ()=> render());
 
-  (async function(){
+  (async function init(){
     await loadStores();
     await load();
   })();

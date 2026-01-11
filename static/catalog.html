@@ -2,31 +2,49 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-visual"
+  />
   <title>АГРО Клуб — Каталог</title>
+
   <style>
     :root{
       --bg:#f6f9f4; --ink:#0b1f0b; --muted:#6b806b; --brand:#19a461; --brand-2:#88c057;
       --danger:#e53935; --card:#ffffff; --border:#e7efe2; --shadow:0 10px 30px rgba(25,164,97,.15);
-      --tg-viewport-stable-height:100vh; /* fallback */
+
+      /* synced by JS (Telegram viewport stable height) */
+      --app-vh: 100vh;
     }
     *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     html,body{height:100%;background:var(--bg);color:var(--ink)}
     body{
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,Arial,sans-serif;
-      height:var(--tg-viewport-stable-height,100vh);
-      min-height:var(--tg-viewport-stable-height,100vh);
+
+      height:var(--app-vh);
+      min-height:var(--app-vh);
+
       padding-top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px) + 15px);
       padding-bottom:calc(var(--tg-safe-area-inset-bottom,0px) + 12px);
+
+      overflow-x:hidden;
     }
-    .header{position:sticky; top:0; z-index:10; background:linear-gradient(180deg,#ffffff,#f3f8ef);
-      border-bottom:1px solid var(--border); padding:10px 16px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px;
-      backdrop-filter:saturate(140%) blur(8px);}
+
+    .header{
+      position:sticky; top:0; z-index:10;
+      background:linear-gradient(180deg,#ffffff,#f3f8ef);
+      border-bottom:1px solid var(--border);
+      padding:10px 16px 12px;
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      backdrop-filter:saturate(140%) blur(8px);
+    }
     .title{font-weight:900;letter-spacing:.2px}
     .sub{font-size:12px;color:var(--muted)}
     .right{display:flex;align-items:center;gap:8px}
-    .badge{padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:#fff;color:var(--brand);font-weight:800;font-size:12px}
+    .badge{
+      padding:4px 10px;border-radius:999px;border:1px solid var(--border);
+      background:#fff;color:var(--brand);font-weight:800;font-size:12px
+    }
 
     .storeInfo{padding:10px 16px; display:grid; gap:4px; background:#fff; border-bottom:1px solid var(--border)}
     .storeName{font-weight:900;}
@@ -50,9 +68,19 @@
     .qty{display:flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--border); padding:6px; border-radius:999px}
     .qty button{width:28px;height:28px;border-radius:50%;border:0;background:var(--brand);color:#fff;font-weight:900;cursor:pointer;}
     .qty span{min-width:18px; text-align:center; font-weight:800}
-    .floating{position:fixed; left:16px; right:16px; bottom:calc(16px + var(--tg-safe-area-inset-bottom,0px)); display:flex; gap:8px; z-index:50;}
-    .pay{flex:1; padding:14px; border-radius:14px; border:0; background:linear-gradient(135deg,var(--brand),var(--brand-2));
-      color:#fff; font-weight:900; box-shadow:var(--shadow); cursor:pointer;}
+
+    .floating{
+      position:fixed; left:16px; right:16px;
+      bottom:calc(16px + var(--tg-safe-area-inset-bottom,0px));
+      display:flex; gap:8px; z-index:50;
+    }
+    .pay{
+      flex:1; padding:14px; border-radius:14px; border:0;
+      background:linear-gradient(135deg,var(--brand),var(--brand-2));
+      color:#fff; font-weight:900; box-shadow:var(--shadow); cursor:pointer;
+    }
+    .pay:disabled{opacity:.55; cursor:not-allowed}
+
     .alert{margin:10px 16px 0; padding:12px 14px; border-radius:12px; border:1px dashed #ffd9a6; background:#fff9ed; color:#b26b00; font-weight:700; display:none;}
     .empty{padding:48px 16px; text-align:center; color:var(--muted)}
     ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:#cfe4cf;border-radius:2px}
@@ -60,6 +88,7 @@
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
+
 <body>
   <header class="header">
     <div>
@@ -77,18 +106,20 @@
   </section>
 
   <div class="filters" id="filters">
-    <button class="pill active" data-cat="all">Все</button>
-    <button class="pill" data-cat="vegetables">Овощи</button>
-    <button class="pill" data-cat="fruits">Фрукты</button>
-    <button class="pill" data-cat="greens">Зелень</button>
-    <button class="pill" data-cat="promo">Акции</button>
+    <button class="pill active" data-cat="all" type="button">Все</button>
+    <button class="pill" data-cat="vegetables" type="button">Овощи</button>
+    <button class="pill" data-cat="fruits" type="button">Фрукты</button>
+    <button class="pill" data-cat="greens" type="button">Зелень</button>
+    <button class="pill" data-cat="promo" type="button">Акции</button>
   </div>
 
   <div class="search">
     <input id="q" type="search" placeholder="Поиск: картофель, морковь, яблоки…" />
   </div>
 
-  <div id="markupAlert" class="alert">Для неподписанных цены отображаются с наценкой ×1.5. Для подписчиков — дешевле на 30–50%.</div>
+  <div id="markupAlert" class="alert">
+    Для неподписанных цены отображаются с наценкой ×1.5. Для подписчиков — дешевле на 30–50%.
+  </div>
 
   <main id="list" class="list" aria-live="polite"></main>
 
@@ -97,8 +128,81 @@
   </div>
 
 <script>
-  // Telegram init
-  try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch(_) {}
+  // =========================
+  // Force Expand / Fullscreen
+  // =========================
+  function tgAvailable(){
+    return !!(window.Telegram && Telegram.WebApp);
+  }
+
+  function syncViewportVars(){
+    let h = window.innerHeight;
+
+    try{
+      if (tgAvailable() && Telegram.WebApp.viewportStableHeight) {
+        h = Telegram.WebApp.viewportStableHeight;
+      } else if (tgAvailable() && Telegram.WebApp.viewportHeight) {
+        h = Telegram.WebApp.viewportHeight;
+      }
+    }catch(_){}
+
+    document.documentElement.style.setProperty('--app-vh', h + 'px');
+  }
+
+  function forceExpand(){
+    syncViewportVars();
+
+    if(!tgAvailable()) return;
+
+    const wa = Telegram.WebApp;
+
+    try{ wa.ready(); }catch(_){}
+    try{ wa.expand(); }catch(_){}
+
+    // Newer Telegram clients may support fullscreen requests.
+    try{
+      if (typeof wa.requestFullscreen === 'function') wa.requestFullscreen();
+    }catch(_){}
+
+    // Retry expand a few times (useful when opened from Menu button)
+    let tries = 0;
+    const maxTries = 8;
+
+    const retry = () => {
+      tries++;
+      try{ wa.expand(); }catch(_){}
+      syncViewportVars();
+
+      if (wa.isExpanded || tries >= maxTries) return;
+      setTimeout(retry, 120);
+    };
+
+    setTimeout(retry, 60);
+
+    try{
+      wa.onEvent('viewportChanged', () => {
+        try{ wa.expand(); }catch(_){}
+        syncViewportVars();
+      });
+    }catch(_){}
+
+    try{
+      wa.onEvent('fullscreen_changed', syncViewportVars);
+      wa.onEvent('fullscreen_failed', syncViewportVars);
+    }catch(_){}
+  }
+
+  (function initTG(){
+    forceExpand();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', forceExpand);
+    }
+    window.addEventListener('resize', syncViewportVars);
+  })();
+
+  // =========================
+  // Original logic (preserved)
+  // =========================
   let telegramId = null;
   try { telegramId = Telegram?.WebApp?.initDataUnsafe?.user?.id || null; } catch(_) {}
 
@@ -123,6 +227,7 @@
   function toast(t){ if (Telegram?.WebApp?.showAlert) Telegram.WebApp.showAlert(t); else alert(t); }
   function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
   function escapeAttr(s){ return String(s??'').replace(/"/g,'&quot;'); }
+
   function photoURL(p){
     const raw = (p.photo || '').trim();
     if(!raw) return '';
@@ -139,7 +244,9 @@
       for(const s of js){
         storesByCode[s.code] = {name:s.name, address:s.address||''};
       }
-    }catch(e){ console.error('stores',e); }
+    }catch(e){
+      console.error('stores', e);
+    }
   }
 
   async function loadSub(){
@@ -159,6 +266,7 @@
       if(isSubscribed){
         subBadge.textContent = js.until ? `Активна до ${js.until}` : 'Активна';
         subBadge.style.color = 'var(--brand)';
+        markupAlert.style.display = 'none';
       }else{
         subBadge.textContent = 'Неактивна';
         subBadge.style.color = '#c62828';
@@ -209,11 +317,14 @@
     const items = filtered();
     if(items.length===0){
       listEl.innerHTML = `<div class="empty">Ничего не найдено…</div>`;
-      recalc(); return;
+      recalc();
+      return;
     }
+
     listEl.innerHTML = items.map(p=>{
       const qty = cart[p.id]||0;
       const src = photoURL(p);
+
       const pic = src
         ? `<img src="${escapeAttr(src)}" alt="${escapeAttr(p.name||'')}" loading="lazy"
                onerror="this.onerror=null; this.remove(); this.closest('.pic').textContent=${JSON.stringify(p.emoji || '🧺')};">`
@@ -227,17 +338,18 @@
           <div class="pic">${pic}</div>
           <div class="info">
             <div class="name">${escapeHtml(p.name||'Товар')}</div>
-            <div class="muted">${labelCat(p.category)} • ${p.unit||'₸/кг'}</div>
-            <div class="price">${priceFor(p)} ₸ <span class="unit">${p.unit||'₸/кг'}</span></div>
+            <div class="muted">${labelCat(p.category)} • ${escapeHtml(p.unit||'₸/кг')}</div>
+            <div class="price">${priceFor(p)} ₸ <span class="unit">${escapeHtml(p.unit||'₸/кг')}</span></div>
           </div>
         </div>
         <div class="qty">
-          <button data-act="dec">−</button>
+          <button data-act="dec" type="button">−</button>
           <span>${qty}</span>
-          <button data-act="inc">+</button>
+          <button data-act="inc" type="button">+</button>
         </div>
       </div>`;
     }).join('');
+
     recalc();
   }
 
@@ -255,6 +367,7 @@
       recalc();
       return;
     }
+
     const open = e.target.closest('[data-act="open-map"]');
     if (open) {
       const row = open.closest('.row');
@@ -277,37 +390,58 @@
   function recalc(){
     const entries = Object.entries(cart);
     let sum = 0;
+
+    // faster: build map once
+    const byId = Object.create(null);
+    for (const p of products) byId[String(p.id)] = p;
+
     for(const [id, q] of entries){
-      const p = products.find(x=>String(x.id)===String(id));
+      const p = byId[String(id)];
       if(!p) continue;
       sum += priceFor(p) * q;
     }
+
     payBtn.disabled = entries.length===0;
     payBtn.textContent = `🛒 Корзина · ${sum} ₸`;
   }
 
-  let t; qEl.addEventListener('input', ()=>{ clearTimeout(t); t = setTimeout(render, 200); });
+  let t;
+  qEl.addEventListener('input', ()=>{
+    clearTimeout(t);
+    t = setTimeout(render, 200);
+  });
+
   filtersEl.addEventListener('click', (e)=>{
     const b = e.target.closest('.pill'); if(!b) return;
     filtersEl.querySelectorAll('.pill').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active'); currentCat = b.getAttribute('data-cat'); render();
+    b.classList.add('active');
+    currentCat = b.getAttribute('data-cat');
+    render();
   });
 
-  // Оформление заказа: POST /api/orders/create -> закрыть мини-апп
+  // Оформление заказа: сохраняем корзину -> confirm page
   payBtn.addEventListener('click', async ()=>{
-  const items = Object.entries(cart).map(([id,qty])=>{
-    const p = products.find(x=>String(x.id)===String(id));
-    return p ? {product_id:Number(id), name:p.name, qty:Number(qty), unit:p.unit, price:priceFor(p), store_code: p.store_code||""} : null;
-  }).filter(Boolean);
-  const total = items.reduce((s,x)=>s + x.price*x.qty, 0);
+    const byId = Object.create(null);
+    for (const p of products) byId[String(p.id)] = p;
 
-  if(!items.length){ return; }
+    const items = Object.entries(cart).map(([id,qty])=>{
+      const p = byId[String(id)];
+      return p ? {
+        product_id: Number(id),
+        name: p.name,
+        qty: Number(qty),
+        unit: p.unit,
+        price: priceFor(p),
+        store_code: p.store_code || ""
+      } : null;
+    }).filter(Boolean);
 
-  // Сохраняем корзину и двигаемся на confirm-страницу
-  sessionStorage.setItem("agro_cart", JSON.stringify({items, total}));
-  location.href = "/order-confirm";
-});
+    const total = items.reduce((s,x)=>s + x.price*x.qty, 0);
+    if(!items.length) return;
 
+    sessionStorage.setItem("agro_cart", JSON.stringify({items, total}));
+    location.href = "/order-confirm";
+  });
 
   (async function init(){
     await Promise.all([loadStores(), loadSub()]);

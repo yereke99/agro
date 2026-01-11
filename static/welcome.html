@@ -2,9 +2,12 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-visual"
+  />
   <title>АГРО Клуб Оптовых Цен — Добро пожаловать</title>
+
   <style>
     :root{
       --bg:#f6f9f4;
@@ -16,6 +19,9 @@
       --danger:#e53935;
       --border:#e7efe2;
       --shadow:0 10px 30px rgba(25,164,97,.15);
+
+      /* will be synced from Telegram viewport */
+      --app-vh: 100vh;
     }
     *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     html,body{height:100%}
@@ -23,10 +29,15 @@
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,Arial,sans-serif;
       background:var(--bg);
       color:var(--ink);
-      height:var(--tg-viewport-stable-height,100vh);
-      min-height:var(--tg-viewport-stable-height,100vh);
+
+      /* force full usable height inside TG bottomsheet/fullscreen */
+      height: var(--app-vh);
+      min-height: var(--app-vh);
+
       padding-top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px) + 15px);
       padding-bottom:calc(var(--tg-safe-area-inset-bottom,0px) + 12px);
+
+      overflow-x:hidden;
     }
     .wrap{
       min-height:100%;
@@ -56,6 +67,7 @@
       text-decoration:none; color:var(--ink);
       font-weight:800; letter-spacing:.2px;
       transition:transform .12s ease;
+      cursor:pointer;
     }
     .btn:active{transform:scale(.985)}
     .btn .ic{font-size:20px}
@@ -74,8 +86,10 @@
       border:1px solid rgba(25,164,97,.22);
     }
   </style>
+
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
+
 <body>
 <div class="wrap">
   <section class="hero">
@@ -96,11 +110,13 @@
       <span>Посмотреть ассортимент</span>
       <span class="right">›</span>
     </a>
+
     <button class="btn" id="subscribeBtn" type="button">
       <span class="ic">💳</span>
       <span>Оформить подписку</span>
       <span class="right">3000 ₸ / месяц</span>
     </button>
+
     <button class="btn" id="storeBtn" type="button">
       <span class="ic">🏪</span>
       <span>Выбрать ближайший магазин</span>
@@ -120,11 +136,89 @@
 </div>
 
 <script>
-  (function initTG(){
+  function tgAvailable(){
+    return !!(window.Telegram && Telegram.WebApp);
+  }
+
+  function syncViewportVars(){
+    // keep CSS height equal to actual visible viewport in TG
+    let h = window.innerHeight;
     try{
-      Telegram.WebApp.ready();
-      Telegram.WebApp.expand();
+      if (tgAvailable() && Telegram.WebApp.viewportStableHeight) {
+        h = Telegram.WebApp.viewportStableHeight;
+      } else if (tgAvailable() && Telegram.WebApp.viewportHeight) {
+        h = Telegram.WebApp.viewportHeight;
+      }
     }catch(e){}
+    document.documentElement.style.setProperty('--app-vh', h + 'px');
+  }
+
+  // Force expand to maximum available height (and request fullscreen if supported)
+  function forceExpand(){
+    if(!tgAvailable()) {
+      syncViewportVars();
+      return;
+    }
+
+    const wa = Telegram.WebApp;
+
+    try{ wa.ready(); }catch(e){}
+    try{ wa.expand(); }catch(e){}
+
+    // Fullscreen mode exists in newer Telegram clients (Mini Apps 2.0+).
+    // If not supported, it just fails silently.
+    try{
+      if (typeof wa.requestFullscreen === 'function') {
+        wa.requestFullscreen();
+      }
+    }catch(e){}
+
+    // Retrying expand helps when the app was opened from Menu button and
+    // Telegram hasn't applied the final viewport size yet.
+    let tries = 0;
+    const maxTries = 8;
+
+    const retry = () => {
+      tries++;
+      try{ wa.expand(); }catch(e){}
+      syncViewportVars();
+
+      // stop when expanded or after max tries
+      const expanded = !!wa.isExpanded;
+      if (expanded || tries >= maxTries) return;
+      setTimeout(retry, 120);
+    };
+
+    setTimeout(retry, 60);
+
+    // Re-apply when viewport changes (drag, orientation, status bar, fullscreen)
+    try{
+      wa.onEvent('viewportChanged', function(){
+        try{ wa.expand(); }catch(e){}
+        syncViewportVars();
+      });
+    }catch(e){}
+
+    try{
+      wa.onEvent('fullscreen_changed', function(){
+        syncViewportVars();
+      });
+      wa.onEvent('fullscreen_failed', function(){
+        // ignore: UNSUPPORTED / ALREADY_FULLSCREEN
+      });
+    }catch(e){}
+  }
+
+  // init TG immediately
+  (function initTG(){
+    forceExpand();
+    // also ensure on load
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', forceExpand);
+    } else {
+      forceExpand();
+    }
+    window.addEventListener('resize', syncViewportVars);
   })();
 
   let telegramId = null;
@@ -143,6 +237,7 @@
         badge.textContent = `Активна до ${js.until}`;
         badge.style.background = 'rgba(25,164,97,.12)';
         badge.style.color = 'var(--brand)';
+        badge.style.borderColor = 'rgba(25,164,97,.22)';
       }else{
         badge.textContent = 'Неактивна';
         badge.style.background = 'rgba(229,57,53,.10)';
@@ -155,7 +250,7 @@
   }
   loadStatus();
 
-  // ⬇⬇⬇ изменённый обработчик подписки
+  // ⬇⬇⬇ изменённый обработчик подписки (сохранён)
   document.getElementById('subscribeBtn').addEventListener('click', async ()=>{
     if(!telegramId){
       alert('Ошибка: не удалось получить ваш Telegram ID.\nОткройте мини-приложение из бота ещё раз.');
@@ -192,16 +287,15 @@
         'Ссылка на оплату подписки отправлена вам в Telegram.\n' +
         'После оплаты, пожалуйста, пришлите чек боту.',
         function () {
-          // закрываем мини-приложение после того, как юзер нажал OK
           try{ Telegram.WebApp.close(); }catch(e){}
         }
       );
     } else {
       alert(
-        'Ссылка на оплату подписки отправлена вам в Telegram.\n' +
+        'Ссылка на оплат'
+        + 'ла вам в Telegram.\n' +
         'После оплаты, пожалуйста, пришлите чек боту.'
       );
-      // запасной вариант вне WebApp (может не сработать в браузере)
       try{ window.close(); }catch(e){}
     }
   });
